@@ -1,0 +1,29 @@
+
+signing:
+
+  cakey: (( x509genkey(2048) ))
+  ca:
+    organization: OCM
+    commonName: ocm
+    privateKey: (( cakey ))
+    isCA: true
+    usage:
+      - Signature
+      - KeyEncipherment
+  cacert: (( x509cert(ca) ))
+
+  key: (( x509genkey(2048) ))
+  sigca:
+      commonName: server # expected issuer and signature name in CV
+      privateKey: (( key ))
+      caPrivateKey: (( cakey ))
+      caCert: (( signing.cacert ))
+
+  cert: (( x509cert(sigca) ))
+
+write:
+  <<<: (( &temporary ))
+  cakey: (( write("signing/ca-key.pem", signing.cakey) ))
+  cacert: (( write("signing/ca-cert.pem", signing.cacert) ))
+  key: (( write("signing/key.pem", signing.key) ))
+  cert: (( write("signing/cert.pem", signing.cert) ))

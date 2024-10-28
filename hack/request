@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+
+set -e
+set -o pipefail
+
+encoding=( )
+format=(  -H "Accept: application/x-pem-file" )
+hashAlgo=
+signAlgo=rsassa-pkcs1-v1_5
+while [ $# -gt 0 ]; do
+  case "$1" in
+   --hash)
+      hashAlgo="?hashAlgorithm=$2"
+      shift 2;;
+   --sign)
+      signAlgo="$2"
+      shift 2;;
+   --base64)
+      encoding=( -H "Content-Encoding: base64" )
+      shift;;
+   --hex)
+      encoding=( -H "Content-Encoding: hex" )
+      shift;;
+
+   --ohex)
+      format=( -H "Accept: application/octet-stream+hex" )
+      shift;;
+   -*)
+      echo "Error: invalid option $1" >&2
+      exit 1;;
+   *)
+     break;;
+  esac
+done
+
+if [ -z "$1" ]; then
+  echo data missing >&2
+  exit 1
+fi
+
+DATA="${1}"
+
+curl --cacert local/server/ca-cert.pem \
+     --cert local/client/client-cert.pem \
+     --key local/client/client-key.pem \
+     "${format[@]}" \
+     -X POST -d "$DATA" "${encoding[@]}" \
+     -s \
+     https://localhost:8080/sign/$signAlgo$hashAlgo

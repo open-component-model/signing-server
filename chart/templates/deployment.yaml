@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ template "signing-server.fullname" . }}
+  labels:
+    app: {{ template "signing-server.fullname" . }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ template "signing-server.fullname" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ template "signing-server.fullname" . }}
+    spec:
+      containers:
+        - name: signing-server
+          image: {{ include "image" .Values.image }}
+          ports:
+            - containerPort: {{ .Values.port }}
+          args:
+            - /signing-server
+            - --host={{ .Values.host }}
+            - --port={{ .Values.port }}
+            - --max-body-size={{ .Values.maxBodySize }}
+            - --private-key=/private-key
+            - --cert=/cert
+            - --server
+            - --server-key=/private-key
+            - --signing-cert=/cert
+            {{- if .Values.caCertificatesConfigMapName }}
+            - --signing-ca-certs=/ca-certs
+            - --ca-certs=/ca-certs
+            {{- end }}
+            {{- if .Values.log.dev }}
+            - --dev
+            {{- end }}
+            {{- if .Values.disableAuth }}
+            - --disable-auth
+            {{- end }}
+          volumeMounts:
+            - name: private-key-secret
+              mountPath: /private-key
+              readOnly: true
+              subPath: key.pem
+            - name: cert-cm
+              mountPath: /cert
+              readOnly: true
+              subPath: cert.pem
+            {{- if .Values.caCertificatesConfigMapName }}
+            - name: ca-certs-cm
+              mountPath: /ca-certs
+              readOnly: true
+              subPath: certs.pem
+            {{- end }}
+      {{- if .Values.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.imagePullSecretName }}
+      {{- end }}
+      volumes:
+        - name: private-key-secret
+          secret:
+            secretName: {{ .Values.privateKeySecretName }}
+        - name: cert-cm
+          configMap:
+            name: {{ .Values.certificateConfigMapName }}
+        {{- if .Values.caCertificatesConfigMapName }}
+        - name: ca-certs-cm
+          configMap:
+            name: {{ .Values.caCertificatesConfigMapName }}
+        {{- end }}

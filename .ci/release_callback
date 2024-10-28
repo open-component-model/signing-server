@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+repo_root="$(dirname "${BASH_SOURCE[0]}")/.."
+deployment_version_file="${repo_root}/DEPLOYMENT_VERSION"
+
+echo "${EFFECTIVE_VERSION}" > ${deployment_version_file}

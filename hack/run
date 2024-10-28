@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+
+set -e
+set -o pipefail
+
+dir=local
+
+if [ -z "$GOEXEC" ]; then
+  if which goroot>/dev/null; then
+    GOEXEC="$(goroot)/bin/go"
+  else
+    GOEXEC=go
+  fi
+fi
+
+SIGN=
+DAEMON=
+PFX=
+encoding=( )
+hashAlgo=( )
+supported=( )
+data=( )
+while [ $# -gt 0 ]; do
+  case "$1" in
+   --sign)
+       SIGN=X
+       shift;;
+   --daemon)
+      DAEMON="--daemon"
+      shift;;
+   --supported)
+      supported=( --supportedAlgorithms "$2" )
+      shift 2;;
+   --hash)
+       hashAlgo=( --hash "$2" )
+       shift 2;;
+   --base64)
+       encoding=( --encoding base64 )
+       shift;;
+   --hex)
+       encoding=( --encoding hex )
+      shift;;
+   --data)
+        data=( --data "$2" )
+        shift;;
+   --pfx)
+        PFX=X
+        shift;;
+   --*)
+     echo "Error: invalid option $1" >&2
+     exit 1;;
+   *)
+     break;;
+  esac
+done
+
+
+if [ ! -f local/server/server-cert.pem ]; then
+  echo "creating server and client certs"
+  mkdir -p local/server local/client
+  ( cd local
+    spiff merge ../auto/server.yaml
+  )
+fi
+
+if [ ! -f local/signing/cert.pem ]; then
+  echo "creating signing certs"
+  mkdir -p local/signing
+  ( cd local
+    spiff merge ../auto/signing.yaml
+  )
+  openssl pkcs12 -inkey local/signing/key.pem -in local/signing/cert.pem -export -out local/signing/key.pfx -password pass:test
+fi
+
+if [ -n "$SIGN" ]; then
+  if [ -n "$PFX" ]; then
+    export SIGNING_PFX_PASSWORD=test
+    $GOEXEC run ./cmd/signing-server --signing-ca-certs local/signing/ca-cert.pem --private-key local/signing/key.pfx \
+                "${hashAlgo[@]}" "${encoding[@]}" "${data[@]}"
+  else
+    $GOEXEC run ./cmd/signing-server --signing-ca-certs local/signing/ca-cert.pem --signing-cert local/signing/cert.pem --private-key local/signing/key.pem \
+                "${hashAlgo[@]}" "${encoding[@]}" "${data[@]}"
+  fi
+else
+  if [ -n "$PFX" ]; then
+    export SIGNING_PFX_PASSWORD=test
+    $GOEXEC run ./cmd/signing-server --server $DAEMON --ca-certs local/server/ca-cert.pem --cert local/server/server-cert.pem --server-key local/server/server-key.pem \
+                 --client-ca-certs local/client/ca-cert.pem --signing-ca-certs local/signing/ca-cert.pem --private-key local/signing/key.pfx \
+                 "${supported[@]}"
+  else
+    $GOEXEC run ./cmd/signing-server --server $DAEMON --ca-certs local/server/ca-cert.pem --cert local/server/server-cert.pem --server-key local/server/server-key.pem \
+                 --client-ca-certs local/client/ca-cert.pem --signing-ca-certs local/signing/ca-cert.pem --signing-cert local/signing/cert.pem --private-key local/signing/key.pem \
+                 "${supported[@]}"
+  fi
+fi

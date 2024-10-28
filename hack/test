@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+
+set -e
+set -o pipefail
+
+CA=/tmp/ca-$$
+
+if [ -n "$1" ]; then
+  CA="$1"
+fi
+
+convertPem() {
+  sed -e '0,/Signature/d' -e '/END/,$d' -e '/^$/d' | base64 -d | xxd -p | sed  -z 's/\n//g'
+}
+
+creds=( --cred :type=Signingserver.gardener.cloud --cred :hostname=localhost \
+        --cred clientCert=$(cat local/client/client-cert.pem) \
+        --cred privateKey=$(cat local/client/client-key.pem) \
+        --cred caCerts=$(cat local/server/ca-cert.pem) \
+      )
+
+echo create "$CA"
+ocm create ca -fF "$CA" github.com/mandelsoft/test 1.0.0 --provider mandelsoft.org
+echo sign
+ocm sign cv -K local/signing/key.pem --signature test "$CA"
+echo hash
+ocm hash cv local/component-archive/ -O "$CA"/norm.ncd -o norm
+
+hash="$(sha256sum  ""$CA/norm.ncd"" | sed "s/ .*$//")"
+ocmsig=$(ocm get cv  "$CA" -o json | jq -r ".items[0].signatures[0].signature.value")
+
+echo sign by server
+ocm "${creds[@]}" sign cv -K "=url: https://localhost:8080" -S rsa-signingservice --signature server "$CA" --ca-cert local/signing/ca-cert.pem
+ocmssig="$(ocm get cv  "$CA" -o json | jq -r ".items[0].signatures[1].signature.value" | convertPem)"
+
+echo sign by openssl
+sslsig="$(openssl dgst -sha256 -sign local/signing/key.pem -hex "$CA"/norm.ncd | sed -e "s/.*= //")"
+
+echo sign by execution
+cmdsig="$(hack/run --sign --hex  --hash SHA-256 --data "$hash" | convertPem)"
+srvsig="$(hack/request --hex --hash sha256  "$hash" | convertPem)"
+
+rm -rf /tmp/ca-$$
+
+echo "HASH: $hash"
+echo "OCM:"
+echo $ocmsig
+echo "OCM by server:"
+echo "$ocmssig"
+echo "OpenSSL:"
+echo $sslsig
+echo "Command:"
+echo "$cmdsig"
+echo "Server:"
+echo $srvsig
+
+fail=
+
+if [ "$ocmsig" != "$sslsig" ]; then
+  fail=X
+  echo "open ssl verion does not match"
+fi
+if [ "$ocmsig" != "$ocmssig" ]; then
+  fail=X
+  echo "ocm by server version does not match"
+fi
+if [ "$ocmsig" != "$srvsig" ]; then
+  fail=X
+  echo "server version does not match"
+fi
+if [ "$ocmsig" != "$cmdsig" ]; then
+  fail=X
+  echo "command version does not match"
+fi
+if [ -n "$fail" ]; then
+  echo "failed" >&2
+  exit 1
+fi
