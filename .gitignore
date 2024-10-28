@@ -1,0 +1,5 @@
+*.sw[pqr]
+/local
+.idea
+.vscode
+signing-server

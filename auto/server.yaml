@@ -1,0 +1,70 @@
+signing:
+  server:
+    ca:
+      organization: OCM
+      commonName: ocm.ca
+      privateKey: (( cakey ))
+      isCA: true
+      usage:
+      - Signature
+      - KeyEncipherment
+
+    cakey: (( x509genkey(2048) ))
+    cacert: (( x509cert(ca) ))
+
+    spec:
+      organization: OCM
+      commonName: ocm
+      caCert: (( cacert ))
+      caPrivateKey: (( cakey ))
+      publicKey: (( x509publickey(key) ))
+      hosts:
+      - localhost
+      - 127.0.0.1
+      usage:
+      - ServerAuth
+      - ClientAuth
+      - CertSign
+      - Signature
+
+    key: (( x509genkey(2048) ))
+    cert: (( x509cert(spec) ))
+
+
+  client:
+    ca:
+      organization: OCM
+      commonName: signing
+      privateKey: (( cakey ))
+      isCA: true
+      usage:
+      - Signature
+      - KeyEncipherment
+
+    cakey: (( x509genkey(2048) ))
+    cacert: (( x509cert(ca) ))
+
+    spec:
+      organization: OCM
+      commonName: ocm
+      caCert: (( cacert ))
+      caPrivateKey: (( cakey ))
+      publicKey: (( x509publickey(key) ))
+      usage:
+      - ServerAuth
+      - ClientAuth
+      - CertSign
+
+    key: (( x509genkey(2048) ))
+    cert: (( x509cert(spec) ))
+
+write:
+  <<<: (( &temporary ))
+  cakey: (( write("server/ca-key.pem", signing.server.cakey) ))
+  cacert: (( write("server/ca-cert.pem", signing.server.cacert) ))
+  skey: (( write("server/server-key.pem", signing.server.key) ))
+  scert: (( write("server/server-cert.pem", signing.server.cert) ))
+  clientcakey: (( write("client/ca-key.pem", signing.client.cakey) ))
+  clientcacert: (( write("client/ca-cert.pem", signing.client.cacert) ))
+  ckey: (( write("client/client-key.pem", signing.client.key) ))
+  ccert: (( write("client/client-cert.pem", signing.client.cert) ))

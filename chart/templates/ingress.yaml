@@ -1,0 +1,32 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    cert.gardener.cloud/purpose: managed
+    dns.gardener.cloud/class: garden
+    dns.gardener.cloud/dnsnames: {{ .Values.host }}
+    nginx.ingress.kubernetes.io/auth-realm: Authentication Required
+    nginx.ingress.kubernetes.io/auth-secret: {{ template "signing-server.fullname" . }}-auth
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/proxy-body-size: {{ .Values.maxBodySize | toString | quote }}
+  name: {{ template "signing-server.fullname" . }}
+  labels:
+    app: {{ template "signing-server.fullname" . }}
+spec:
+  rules:
+  - host: {{ .Values.host }}
+    http:
+      paths:
+      - backend:
+          service:
+            name: {{ template "signing-server.fullname" . }}
+            port:
+              number: 8081
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - {{ .Values.host }}
+    secretName: {{ template "signing-server.fullname" . }}-tls
+{{- end }}
