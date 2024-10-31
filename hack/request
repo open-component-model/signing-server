@@ -5,6 +5,7 @@ set -o pipefail
 
 encoding=( )
 format=(  -H "Accept: application/x-pem-file" )
+print=
 hashAlgo=
 signAlgo=rsassa-pkcs1-v1_5
 while [ $# -gt 0 ]; do
@@ -25,6 +26,9 @@ while [ $# -gt 0 ]; do
    --ohex)
       format=( -H "Accept: application/octet-stream+hex" )
       shift;;
+   -v)
+      print=X
+      shift;;
    -*)
       echo "Error: invalid option $1" >&2
       exit 1;;
@@ -40,10 +44,16 @@ fi
 
 DATA="${1}"
 
-curl --cacert local/server/ca-cert.pem \
+cmd=(curl --cacert local/server/ca-cert.pem \
      --cert local/client/client-cert.pem \
      --key local/client/client-key.pem \
      "${format[@]}" \
      -X POST -d "$DATA" "${encoding[@]}" \
      -s \
-     https://localhost:8080/sign/$signAlgo$hashAlgo
+     https://localhost:8080/sign/$signAlgo$hashAlgo)
+
+if [ -n "$print" ]; then
+  echo "${cmd[@]}" >&2
+fi
+
+"${cmd[@]}"
