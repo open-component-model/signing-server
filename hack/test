@@ -20,18 +20,24 @@ creds=( --cred :type=Signingserver.gardener.cloud --cred :hostname=localhost \
       )
 
 echo create "$CA"
-ocm create ca -fF "$CA" github.com/mandelsoft/test 1.0.0 --provider mandelsoft.org
+ocm create ca -fF "$CA" acme.org/test 1.0.0 --provider acme.org
+ocm hash cv "$CA"
+
 echo sign
 ocm sign cv -K local/signing/key.pem --signature test "$CA"
 echo hash
-ocm hash cv local/component-archive/ -O "$CA"/norm.ncd -o norm
+ocm hash cv "$CA" -N "jsonNormalisation/v1" -O "$CA"/norm.ncd -o norm
+hash="$(sha256sum  "$CA/norm.ncd" | sed "s/ .*$//")"
+echo "NORM:    $(cat "$CA"/norm.ncd)"
+echo "HASH:    $hash"
 
-hash="$(sha256sum  ""$CA/norm.ncd"" | sed "s/ .*$//")"
 ocmsig=$(ocm get cv  "$CA" -o json | jq -r ".items[0].signatures[0].signature.value")
 
 echo sign by server
 ocm "${creds[@]}" sign cv -K "=url: https://localhost:8080" -S rsa-signingservice --signature server "$CA" --ca-cert local/signing/ca-cert.pem
 ocmssig="$(ocm get cv  "$CA" -o json | jq -r ".items[0].signatures[1].signature.value" | convertPem)"
+ocmhash="$(ocm get cv  "$CA" -o json | jq -r ".items[0].signatures[1].digest.value" )"
+echo "OCMHASH: $ocmhash"
 
 echo sign by openssl
 sslsig="$(openssl dgst -sha256 -sign local/signing/key.pem -hex "$CA"/norm.ncd | sed -e "s/.*= //")"
@@ -42,7 +48,6 @@ srvsig="$(hack/request --hex --hash sha256  "$hash" | convertPem)"
 
 rm -rf /tmp/ca-$$
 
-echo "HASH: $hash"
 echo "OCM:"
 echo $ocmsig
 echo "OCM by server:"
