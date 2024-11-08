@@ -1,97 +1,97 @@
-# API-Dokumentation für den Signing-Server
+# API Documentation for the Signing Server
 
-## Übersicht
+## Overview
 
-Diese API ermöglicht das Signieren von Inhalten über einen HTTP-Server. Die API unterstützt verschiedene Endpunkte für das Signieren und Verwalten von Zertifikaten.
+This API allows signing of content over an HTTP server. The API supports various endpoints for signing and managing certificates.
 
-## Endpunkte
+## Endpoints
 
-### 1. Signieren von Inhalten
+### 1. Signing Content
 
 **URL:** `/sign`
 
-**Methode:** `POST`
+**Method:** `POST`
 
-**Beschreibung:** Dieser Endpunkt signiert den bereitgestellten Inhalt.
+**Description:** This endpoint signs the provided content.
 
-**Anfrage:**
-
-```json
-{
-  "data": "string",  // Der zu signierende Inhalt
-  "hashAlgorithm": "string",  // Der zu verwendende Hash-Algorithmus (optional)
-  "encoding": "string"  // Die Kodierung des Inhalts (optional)
-}
-```
-
-**Antwort:**
+**Request:**
 
 ```json
 {
-  "signature": "string"  // Die generierte Signatur
+  "data": "string",  // The content to be signed
+  "hashAlgorithm": "string",  // The hash algorithm to use (optional)
+  "encoding": "string"  // The encoding of the content (optional)
 }
 ```
 
-### 2. Zertifikate verwalten
+**Response:**
+
+```json
+{
+  "signature": "string"  // The generated signature
+}
+```
+
+### 2. Manage Certificates
 
 **URL:** `/certificates`
 
-**Methode:** `GET`
+**Method:** `GET`
 
-**Beschreibung:** Dieser Endpunkt gibt die Liste der verfügbaren Zertifikate zurück.
+**Description:** This endpoint returns the list of available certificates.
 
-**Anfrage:** Keine
+**Request:** None
 
-**Antwort:**
+**Response:**
 
 ```json
 [
   {
-    "id": "string",  // Die ID des Zertifikats
-    "subject": "string",  // Der Betreff des Zertifikats
-    "issuer": "string",  // Der Aussteller des Zertifikats
-    "validFrom": "string",  // Gültig ab
-    "validTo": "string"  // Gültig bis
+    "id": "string",  // The certificate ID
+    "subject": "string",  // The certificate subject
+    "issuer": "string",  // The certificate issuer
+    "validFrom": "string",  // Valid from
+    "validTo": "string"  // Valid to
   }
 ]
 ```
 
-### 3. Zertifikat hinzufügen
+### 3. Add Certificate
 
 **URL:** `/certificates`
 
-**Methode:** `POST`
+**Method:** `POST`
 
-**Beschreibung:** Dieser Endpunkt fügt ein neues Zertifikat hinzu.
+**Description:** This endpoint adds a new certificate.
 
-**Anfrage:**
-
-```json
-{
-  "certificate": "string",  // Das Zertifikat im PEM-Format
-  "privateKey": "string"  // Der private Schlüssel im PEM-Format
-}
-```
-
-***Antwort:***
+**Request:**
 
 ```json
 {
-  "message": "string"  // Erfolgsmeldung
+  "certificate": "string",  // The certificate in PEM format
+  "privateKey": "string"  // The private key in PEM format
 }
 ```
 
-### Fehlercodes
+**Response:**
 
-- `400 Bad Request`: Ungültige Anfrage
-- `401 Unauthorized`: Nicht autorisiert
-- `500 Internal Server Error`: Serverfehler
+```json
+{
+  "message": "string"  // Success message
+}
+```
 
-### Beispiele
+### Error Codes
 
-**Beispiel für eine Signaturanfrage**
+- `400 Bad Request`: Invalid request
+- `401 Unauthorized`: Unauthorized
+- `500 Internal Server Error`: Server error
 
-*Anfrage:**
+### Examples
+
+Example Signature Request
+
+**Request:**
 
 ```json
 {
@@ -101,9 +101,7 @@ Diese API ermöglicht das Signieren von Inhalten über einen HTTP-Server. Die AP
 }
 ```
 
-<vscode_annotation details='%5B%7B%22title%22%3A%22hardcoded-credentials%22%2C%22description%22%3A%22Embedding%20credentials%20in%20source%20code%20risks%20unauthorized%20access%22%7D%5D'></vscode_annotation>
-
-**Antwort:**
+**Response:**
 
 ```json
 {
