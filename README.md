@@ -209,3 +209,5 @@ To generate a client certificate perform the following steps. These steps are op
   - Run `make create-ca-certs-configmap CA_CERTS_FILE=<path-to-ca-certs>`
 - Check `./chart/values.yaml` for help on any further configuration
 - Run `helm upgrade <release-name> ./chart -f <values-file> --install` to install the Helm Chart
+
+  
