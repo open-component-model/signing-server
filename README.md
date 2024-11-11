@@ -2,25 +2,28 @@
 
 [![REUSE status](https://api.reuse.software/badge/github.com/open-component-model/signing-server)](https://api.reuse.software/info/github.com/open-component-model/signing-server)
 
-This repository contains the implementation of a signing tool/server which can be used for signing arbitrary content. See the [API documentation](#api) for more information on the server's capabilities.
+This repository contains the implementation of a signing tool/server which can be used for signing arbitrary content. See the [API documentation](./api.md) for more information on the server's capabilities.
 
 The content is not hashed, so the intention is to
 sign short data or hashes of resources. The hash algorithm used to generate the hash can be passed along with the (hash) data.
 
 It uses separate certificates/ certificate authorities
 for
+
 - the signing process
 - for the client authorization
 - for the web server
 
 If a PKCS#12 key file (signing key or server key) is specified, the certificate is also taken from this file. The required passwords are given by environment variables:
+
 - `SIGNING_PFX_PASSWORD`: for the signing key
 - `SERVER_PFX_PASSWORD`: for the web server
 
 ## Synopsis
 
 Common Signing Options:
-```
+
+```text
   --dev-logging
         [OPTIONAL] enable development logging
   --encoding string
@@ -28,55 +31,57 @@ Common Signing Options:
   --format string
         [OPTIONAL] output format (default "application/x-pem-file")
   --signing-ca-certs string
-    	[OPTIONAL] path to a file which contains the signing ca certificates
+        [OPTIONAL] path to a file which contains the signing ca certificates
   --signing-cert string
-    	[OPTIONAL] path to a file which contains the signing certificate
+        [OPTIONAL] path to a file which contains the signing certificate
   --private-key string
-    	path to a file which contains the private signing key.
-    	supported formats are:
-    	- PKCS#1 (.der, .pem)
-    	- PKCS#8 (.pem)
-    	- PKCS#12 (.pfx)
+        path to a file which contains the private signing key.
+        supported formats are:
+        - PKCS#1 (.der, .pem)
+        - PKCS#8 (.pem)
+        - PKCS#12 (.pfx)
   --stdout string
         redirect log, regular output and error output to given file
 ```
 
 Signing Tool Options:
-```
+
+```text
   --algorithm string
         [OPTIONAL] signing algorithm (default "RSASSA-PKCS1-V1_5")
   --data string
         [OPTIONAL] input data as argument
   --hash string
-    	[OPTIONAL] hash function
+        [OPTIONAL] hash function
   --out string
-    	[OPTIONAL] output file
+        OPTIONAL] output file
 ```
-Signing Server Options:
-```
-  --ca-certs string
-    	[OPTIONAL] path to a file which contains the concatenation of any intermediate and ca certificate in pem format
-  --cert string
-    	path to a file which contains the server certificate in pem format
-  --client-ca-certs string
-    	[OPTIONAL] path to a file which contains the ca certificate in pem format used for the client authorization.
-  --disable-auth
-    	[OPTIONAL] disable authentication. should only be used for development
-  --disable-https
-    	[OPTIONAL] disable https. runs the server with http
-  --graceful-timeout duration
-    	[OPTIONAL] the duration for which the server gracefully wait for existing connections to finish - e.g. 15s or 1m (default 15s)
-  --host string
-    	[OPTIONAL] hostname that is resolvable via dns (default "localhost")
-  --max-body-size int
-    	[OPTIONAL] maximum allowed size of the request body in bytes (default 2048)
-  --port string
-    	[OPTIONAL] port where the server should listen (default "8080")
-  --server
-    	[OPTIONAL] run signing server
-  --server-key string
-    	path to a file which contains the server private key
 
+Signing Server Options:
+
+```text
+  --ca-certs string
+      [OPTIONAL] path to a file which contains the concatenation of any intermediate and ca certificate in pem format
+  --cert string
+      path to a file which contains the server certificate in pem format
+  --client-ca-certs string
+      [OPTIONAL] path to a file which contains the ca certificate in pem format used for the client authorization.
+  --disable-auth
+      [OPTIONAL] disable authentication. should only be used for development
+  --disable-https
+      [OPTIONAL] disable https. runs the server with http
+  --graceful-timeout duration
+      [OPTIONAL] the duration for which the server gracefully wait for existing connections to finish - e.g. 15s or 1m (default 15s)
+  --host string
+      [OPTIONAL] hostname that is resolvable via dns (default "localhost")
+  --max-body-size int
+      [OPTIONAL] maximum allowed size of the request body in bytes (default 2048)
+  --port string
+      [OPTIONAL] port where the server should listen (default "8080")
+  --server
+      [OPTIONAL] run signing server
+  --server-key string
+      path to a file which contains the server private key
 ```
 
 ## Signing tool
@@ -98,15 +103,15 @@ It requires a server certificate with optional certificate authority certificate
 
 Sign an arbitrary bytestream that is sent via the request body with the [RSASSA-PKCS1-V1_5](https://datatracker.ietf.org/doc/html/rfc3447#section-8.2) signature algorithm.
 
-* **URL**
+- **URL**
 
   /sign/rsassa-pkcs1-v1_5
 
-* **Method:**
+- **Method:**
 
   `POST`
 
-* **Request Headers**
+- **Request Headers**
 
   *Required:*
 
@@ -123,8 +128,8 @@ Sign an arbitrary bytestream that is sent via the request body with the [RSASSA-
     - `base64`: base64-encoded data
     - `hex`: hex-encoded data
     - `raw`: byte-stream
-    - 
-* **Query Parameters**
+
+- **Query Parameters**
 
   *Optional:*
 
@@ -139,30 +144,32 @@ Sign an arbitrary bytestream that is sent via the request body with the [RSASSA-
     - `SHA-512`
     - `MD5+SHA1`
     - `RIPEMD-160`
-    
 
-* **Request Body**
+- **Request Body**
 
   The data that should be signed.
 
+- **Success Response:**
 
-* **Success Response:**
-
-  * **Code:** 200 <br />
+  - **Code:** 200 <br />
     **Content:**
-    ```
+
+    ```text
     // Response format depends on the chosen format in the Accept header
     ```
 
 ## Setup
 
 ### Generate Keys and Certificates
+
 - Prerequisite: openssl cli >= 3.0
 - Create a new empty directory and the skeleton files and directories
-  ```
+  
+  ```text
   mkdir keys-and-certs && cd keys-and-certs
   mkdir certs private && echo 01 > serial && touch index.txt && cp /usr/local/etc/openssl/openssl.cnf .
   ```
+
 - Generate the private key
   - `openssl genpkey -algorithm RSA -out private/key.pem`
 - Generate the server certificate and sign with the private key. Beware to add all hostnames for which the certificate should be valid via the `-addext` option.
@@ -180,11 +187,13 @@ To generate a client certificate perform the following steps. These steps are op
   - `openssl x509 -req -in client/csr/csr.pem -CA certs/cert.pem -CAkey private/key.pem -out client/certs/cert.pem -CAcreateserial -days 365 -sha256`
 
 ### Run on Local Machine
+
 - Run `make go-build` to build the server executable
 - Run `./signing-server --server` to locally run the server. Run `./signing-server --help` to get help on the correct configuration
 - Use `hack/run` to create necessary keys and certificates and run the server.
 
 ### Run in K8s Cluster
+
 - Clone this repository to your local machine
 - Checkout the desired tag/commit via `git checkout`
 - For building/pushing the Docker image locally
@@ -200,3 +209,5 @@ To generate a client certificate perform the following steps. These steps are op
   - Run `make create-ca-certs-configmap CA_CERTS_FILE=<path-to-ca-certs>`
 - Check `./chart/values.yaml` for help on any further configuration
 - Run `helm upgrade <release-name> ./chart -f <values-file> --install` to install the Helm Chart
+
+  
