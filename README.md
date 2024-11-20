@@ -40,8 +40,20 @@ Common Signing Options:
         - PKCS#1 (.der, .pem)
         - PKCS#8 (.pem)
         - PKCS#12 (.pfx)
+  --hsm-keyid string
+        [OPTIONAL] hsm key id
+  --hsm-keylabel string
+        [OPTIONAL] hsm key label
+  --hsm-module string
+        [OPTIONAL] path to HSM library
+  --hsm-pass string
+        [OPTIONAL] HSM passphrase (@... from file, =... from arg)
+  --hsm-slot int
+        [OPTIONAL] hsm slot (default -1)
+
   --stdout string
         redirect log, regular output and error output to given file
+  --supportedAlgorithms strings   [OPTIONAL] supported algorithms for signing server
 ```
 
 Signing Tool Options:
@@ -98,6 +110,20 @@ For authorization a client certificate is required
 signed by the server certificate.
 
 It requires a server certificate with optional certificate authority certificate for the web server and a certificate authority certificate for the validation of client certificates if the client authorization is not disabled.
+
+### HSM Signing
+
+Using the `hsm` signing options signing is switched to hardware-based signing,
+no private key is required anymore. The signing algorithms are the same.
+
+With `--hsm-module` the path to the HSM shared library is specified. This
+library is specific for your hardware signing module, which should be used for
+signing. For testing, you can use the `softhcm` library (for Unix systems
+this is typically `/usr/lib/softhsm/libsofthsm2.so`)
+
+Additionally, the pass phrase and the id or label of the private key has to
+be specified. The slot is optional, by default, the first reported slot is
+used.
 
 ### Sign with RSASSA-PKCS1-V1_5
 

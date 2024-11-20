@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -13,16 +14,19 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/miekg/pkcs11"
+	"github.com/open-component-model/signing-server/pkg/handler/sign/hsm_pkcs1_1_5"
+	"github.com/open-component-model/signing-server/pkg/handler/sign/hsm_pss"
 	"github.com/open-component-model/signing-server/pkg/handler/sign/rsassa_pss"
 	"github.com/spf13/pflag"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"golang.org/x/crypto/pkcs12"
-
-	"go.uber.org/zap"
 
 	"github.com/open-component-model/signing-server/pkg/encoding"
 	"github.com/open-component-model/signing-server/pkg/handler/sign"
@@ -69,14 +73,126 @@ type Config struct {
 	DisableAuth        bool
 	DisableHTTPS       bool
 
+	HSMModule   string
+	HSMSlot     int
+	HSMPass     string
+	HSMKeyLabel string
+	HSMKeyId    string
+
+	HSMContext   *pkcs11.Ctx
+	HSMSession   pkcs11.SessionHandle
+	HSMKeyHandle pkcs11.ObjectHandle
+
 	// calculated by program
 	Logger *zap.Logger
 }
 
-func (c *Config) Validate(args []string) error {
-	if c.SigningPrivateKeyPath == "" {
-		return errors.New("path to private key file must be set")
+func (c *Config) SetupHSM() error {
+	c.Logger.Info("setup HSM signing", zap.String("module", c.HSMModule))
+	p := pkcs11.New(c.HSMModule)
+	err := p.Initialize()
+	if err != nil {
+		return err
 	}
+
+	if c.HSMSlot < 0 {
+		slots, err := p.GetSlotList(true)
+		if err != nil {
+			return fmt.Errorf("lookup HSM slots: %w", err)
+		} else {
+			c.HSMSlot = int(slots[0])
+		}
+	}
+	c.Logger.Info("using slot", zap.Int("slot", c.HSMSlot))
+
+	session, err := p.OpenSession(uint(c.HSMSlot), pkcs11.CKF_SERIAL_SESSION|pkcs11.CKF_RW_SESSION)
+	if err != nil {
+		return fmt.Errorf("open HSM session: %w", err)
+	}
+
+	err = p.Login(session, pkcs11.CKU_USER, c.HSMPass)
+	if err != nil {
+		p.CloseSession(session)
+		return fmt.Errorf("HSM login: %w", err)
+	}
+
+	attrs := []*pkcs11.Attribute{
+		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY),
+	}
+	if c.HSMKeyLabel != "" {
+		attrs = append(attrs, pkcs11.NewAttribute(pkcs11.CKA_LABEL, c.HSMKeyLabel))
+	}
+	if c.HSMKeyId != "" {
+		id, err := strconv.ParseInt(c.HSMKeyId, 10, 8)
+		if err != nil {
+			p.CloseSession(session)
+			p.Destroy()
+			return fmt.Errorf("invalid key id %q: %w", c.HSMKeyId, err)
+		}
+		attrs = append(attrs, pkcs11.NewAttribute(pkcs11.CKA_ID, []byte{byte(id)}))
+	}
+	if err := p.FindObjectsInit(session, attrs); err != nil {
+		p.CloseSession(session)
+		p.Destroy()
+		return fmt.Errorf("HSM get private key handle %q: %w", c.HSMKeyId, err)
+	}
+
+	objs, _, err := p.FindObjects(session, 1)
+	if err != nil {
+		p.CloseSession(session)
+		p.Destroy()
+		return fmt.Errorf("key id %q: %w", c.HSMKeyId, err)
+	}
+	if len(objs) != 1 {
+		p.CloseSession(session)
+		p.Destroy()
+		return fmt.Errorf("key id %q not found (%d)", c.HSMKeyId, len(objs))
+	}
+	p.FindObjectsFinal(session)
+
+	c.Logger.Info("key id", zap.Uint("id", uint(objs[0])))
+
+	c.HSMSession = session
+	c.HSMContext = p
+	c.HSMKeyHandle = objs[0]
+	return nil
+}
+
+func (c *Config) Validate(args []string) error {
+	if c.SigningPrivateKeyPath == "" && c.HSMModule == "" {
+		return errors.New("path to private key file or HSM module must be set")
+	}
+
+	if c.HSMModule != "" {
+		if c.HSMPass == "" {
+			return errors.New("HSM passphrase required")
+		}
+		switch {
+		case strings.HasPrefix(c.HSMPass, "@"):
+			pass, err := os.ReadFile(c.HSMPass[1:])
+			if err != nil {
+				return fmt.Errorf("cannot read passphrase from %q: %w", c.HSMPass[1:], err)
+			}
+			c.HSMPass = string(pass)
+
+		case strings.HasPrefix(c.HSMPass, "="):
+			c.HSMPass = c.HSMPass[1:]
+		}
+		if c.HSMPass == "" {
+			return errors.New("HSM passphrase required")
+		}
+
+		if (c.HSMKeyId == "" && c.HSMKeyLabel == "") || (c.HSMKeyId != "" && c.HSMKeyLabel != "") {
+			return errors.New("one of HSM key id or HSM key label required")
+		}
+		if c.HSMKeyId != "" {
+			_, err := strconv.ParseInt(c.HSMKeyId, 10, 8)
+			if err != nil {
+				return fmt.Errorf("HSM key id %q: %w", c.HSMKeyId, err)
+			}
+		}
+	}
+
 	if c.MaxBodySizeBytes <= 0 {
 		return errors.New("max body size must be > 0")
 	}
@@ -352,8 +468,17 @@ func run(cfg *Config) error {
 		allCerts = append(allCerts, caBlocks...)
 	}
 
-	sign.Register(rsassa_pkcs1_1_5.New(rsaPrivateKey))
-	sign.Register(rsassa_pss.New(rsaPrivateKey))
+	if cfg.HSMModule != "" {
+		err := cfg.SetupHSM()
+		if err != nil {
+			return fmt.Errorf("cannot setup HSM signing: %w", err)
+		}
+		sign.Register(hsm_pkcs1_1_5.New(cfg.HSMContext, cfg.HSMSession, cfg.HSMKeyHandle))
+		sign.Register(hsm_pss.New(cfg.HSMContext, cfg.HSMSession, cfg.HSMKeyHandle))
+	} else {
+		sign.Register(rsassa_pkcs1_1_5.New(rsaPrivateKey))
+		sign.Register(rsassa_pss.New(rsaPrivateKey))
+	}
 
 	for _, n := range cfg.SupportedAlgorithms {
 		if _, err := sign.Get(n); err != nil {
@@ -420,6 +545,7 @@ func RunSigner(cfg *Config, args []string, responseBuilders map[string]encoding.
 	if err != nil {
 		return fmt.Errorf("cannot decode input: %w", err)
 	}
+	cfg.Logger.Info("sign", zap.String("digest", hex.EncodeToString(data)), zap.String("signer", fmt.Sprintf("%v", signer)))
 	signature, err := signer.Sign(hashfunc, data)
 	if err != nil {
 		return err
@@ -536,13 +662,19 @@ func main() {
 	pflag.StringVar(&cfg.Algorithm, "algorithm", rsassa_pkcs1_1_5.Algorithm, "[OPTIONAL] signing algorithm")
 	pflag.StringVar(&cfg.OutFile, "out", "", "[OPTIONAL] output file")
 
-	pflag.StringVar(&cfg.SigningPrivateKeyPath, "private-key", "", `path to a file which contains the private signing key.
+	pflag.StringVar(&cfg.SigningPrivateKeyPath, "private-key", "", `(non-hsm) path to a file which contains the private signing key.
 supported formats are:
 - PKCS#1 (.der, .pem)
 - PKCS#8 (.pem)
 - PKCS#12 (.pfx)`)
 	pflag.StringVar(&cfg.SigningCertPath, "signing-cert", "", "[OPTIONAL] path to a file which contains the signing certificate")
 	pflag.StringVar(&cfg.SigningCaCertsPath, "signing-ca-certs", "", "[OPTIONAL] path to a file which contains the signing ca certificates")
+
+	pflag.StringVar(&cfg.HSMModule, "hsm-module", "", "[OPTIONAL] path to HSM library")
+	pflag.StringVar(&cfg.HSMPass, "hsm-pass", "", "[OPTIONAL] HSM passphrase (@... from file, =... from arg)")
+	pflag.StringVar(&cfg.HSMKeyId, "hsm-keyid", "", "[OPTIONAL] hsm key id")
+	pflag.StringVar(&cfg.HSMKeyLabel, "hsm-keylabel", "", "[OPTIONAL] hsm key label")
+	pflag.IntVar(&cfg.HSMSlot, "hsm-slot", -1, "[OPTIONAL] hsm slot")
 
 	pflag.StringVar(&cfg.ServerKeyPath, "server-key", "", "path to a file which contains the server private key")
 	pflag.StringVar(&cfg.CertPath, "cert", "", "path to a file which contains the server certificate in pem format")
