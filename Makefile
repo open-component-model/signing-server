@@ -1,3 +1,5 @@
+REGISTRY := github.com/open-component-model/signing-server
+
 ifeq ($(OS),Windows_NT)
     REPO_ROOT := $(CURDIR)
     VERSION := $(shell cat VERSION)
@@ -16,7 +18,7 @@ CA_CERTS_CM_NAME := ca-certs
 
 .PHONY: go-build
 go-build:
-	@go build -mod vendor -o signing-server cmd/signing-server/main.go
+	@go build -o signing-server ./cmd/signing-server/main.go
 
 .PHONY: docker-build
 docker-build:

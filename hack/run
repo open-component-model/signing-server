@@ -1,5 +1,16 @@
 #!/usr/bin/env bash
 
+RUN()
+{
+  echo "running $@"
+  if [ -n "$HSM" ]; then
+     go build -o signing-server "$1"
+     sudo ./signing-server "${@:2}"
+  else
+     "$GOEXEC" run "$@"
+  fi
+}
+
 set -e
 set -o pipefail
 
@@ -22,6 +33,17 @@ supported=( )
 data=( )
 while [ $# -gt 0 ]; do
   case "$1" in
+   --hsm)
+       if [ $# -lt 4 ]; then
+         echo "Error: invalid hsm options: require module, pass and keylabel " >&2
+         exit 1
+       fi
+       if [[ "$4" =~ [0-9]+ ]]; then
+         HSM=( --hsm-module "$2" --hsm-pass "$3" --hsm-keyid "$4" )
+       else
+         HSM=( --hsm-module "$2" --hsm-pass "$3" --hsm-keylabel "$4" )
+       fi
+       shift 4;;
    --sign)
        SIGN=X
        shift;;
@@ -75,21 +97,21 @@ fi
 if [ -n "$SIGN" ]; then
   if [ -n "$PFX" ]; then
     export SIGNING_PFX_PASSWORD=test
-    $GOEXEC run ./cmd/signing-server --signing-ca-certs local/signing/ca-cert.pem --private-key local/signing/key.pfx \
+    RUN ./cmd/signing-server --signing-ca-certs local/signing/ca-cert.pem --private-key local/signing/key.pfx "${HSM[@]}" \
                 "${hashAlgo[@]}" "${encoding[@]}" "${data[@]}"
   else
-    $GOEXEC run ./cmd/signing-server --signing-ca-certs local/signing/ca-cert.pem --signing-cert local/signing/cert.pem --private-key local/signing/key.pem \
+    RUN ./cmd/signing-server --signing-ca-certs local/signing/ca-cert.pem --signing-cert local/signing/cert.pem --private-key local/signing/key.pem "${HSM[@]}" \
                 "${hashAlgo[@]}" "${encoding[@]}" "${data[@]}"
   fi
 else
   if [ -n "$PFX" ]; then
     export SIGNING_PFX_PASSWORD=test
-    $GOEXEC run ./cmd/signing-server --server $DAEMON --ca-certs local/server/ca-cert.pem --cert local/server/server-cert.pem --server-key local/server/server-key.pem \
+    RUN ./cmd/signing-server --server $DAEMON --ca-certs local/server/ca-cert.pem --cert local/server/server-cert.pem --server-key local/server/server-key.pem "${HSM[@]}" \
                  --client-ca-certs local/client/ca-cert.pem --signing-ca-certs local/signing/ca-cert.pem --private-key local/signing/key.pfx \
                  "${supported[@]}"
   else
-    $GOEXEC run ./cmd/signing-server --server $DAEMON --ca-certs local/server/ca-cert.pem --cert local/server/server-cert.pem --server-key local/server/server-key.pem \
-                 --client-ca-certs local/client/ca-cert.pem --signing-ca-certs local/signing/ca-cert.pem --signing-cert local/signing/cert.pem --private-key local/signing/key.pem \
+    RUN ./cmd/signing-server --server $DAEMON --ca-certs local/server/ca-cert.pem --cert local/server/server-cert.pem --server-key local/server/server-key.pem "${HSM[@]}" \
+                 --client-ca-certs local/client/ca-cert.pem --signing-ca-certs local/signing/ca-cert.pem --signing-cert local/signing/cert.pem --private-key local/signing/key.pem "${HSM[@]}" \
                  "${supported[@]}"
   fi
 fi
