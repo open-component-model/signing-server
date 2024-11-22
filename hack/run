@@ -38,8 +38,10 @@ while [ $# -gt 0 ]; do
          echo "Error: invalid hsm options: require module, pass and keylabel " >&2
          exit 1
        fi
-       if [[ "$4" =~ [0-9]+ ]]; then
-         HSM=( --hsm-module "$2" --hsm-pass "$3" --hsm-keyid "$4" )
+       #  id format "=<hex>" -> select keyid option
+       #  label format "*"   -> select keylabel option
+       if [[ "$4" =~ ^=[0-9a-fA-F]+$ ]]; then
+         HSM=( --hsm-module "$2" --hsm-pass "$3" --hsm-keyid "$(cut -c 2- <<<"$4")" )
        else
          HSM=( --hsm-module "$2" --hsm-pass "$3" --hsm-keylabel "$4" )
        fi
