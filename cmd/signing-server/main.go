@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"time"
 
@@ -110,6 +109,7 @@ func (c *Config) SetupHSM() error {
 		return fmt.Errorf("open HSM session: %w", err)
 	}
 
+	// c.Logger.Info("using pin", zap.String("pin", c.HSMPass))
 	err = p.Login(session, pkcs11.CKU_USER, c.HSMPass)
 	if err != nil {
 		p.CloseSession(session)
@@ -121,15 +121,17 @@ func (c *Config) SetupHSM() error {
 	}
 	if c.HSMKeyLabel != "" {
 		attrs = append(attrs, pkcs11.NewAttribute(pkcs11.CKA_LABEL, c.HSMKeyLabel))
+		c.Logger.Info("selecting key label", zap.String("label", c.HSMKeyLabel))
 	}
 	if c.HSMKeyId != "" {
-		id, err := strconv.ParseInt(c.HSMKeyId, 10, 8)
+		id, err := hex.DecodeString(c.HSMKeyId)
 		if err != nil {
 			p.CloseSession(session)
 			p.Destroy()
-			return fmt.Errorf("invalid key id %q: %w", c.HSMKeyId, err)
+			return fmt.Errorf("invalid key id %+v: %w", id, err)
 		}
-		attrs = append(attrs, pkcs11.NewAttribute(pkcs11.CKA_ID, []byte{byte(id)}))
+		attrs = append(attrs, pkcs11.NewAttribute(pkcs11.CKA_ID, id))
+		c.Logger.Info("selecting key id", zap.String("id", c.HSMKeyId))
 	}
 	if err := p.FindObjectsInit(session, attrs); err != nil {
 		p.CloseSession(session)
@@ -141,16 +143,16 @@ func (c *Config) SetupHSM() error {
 	if err != nil {
 		p.CloseSession(session)
 		p.Destroy()
-		return fmt.Errorf("key id %q: %w", c.HSMKeyId, err)
+		return fmt.Errorf("find key failed: %w", err)
 	}
 	if len(objs) != 1 {
 		p.CloseSession(session)
 		p.Destroy()
-		return fmt.Errorf("key id %q not found (%d)", c.HSMKeyId, len(objs))
+		return fmt.Errorf("key not found (%d)", len(objs))
 	}
 	p.FindObjectsFinal(session)
 
-	c.Logger.Info("key id", zap.Uint("id", uint(objs[0])))
+	c.Logger.Info("key handle", zap.Uint("handle", uint(objs[0])))
 
 	c.HSMSession = session
 	c.HSMContext = p
@@ -186,7 +188,7 @@ func (c *Config) Validate(args []string) error {
 			return errors.New("one of HSM key id or HSM key label required")
 		}
 		if c.HSMKeyId != "" {
-			_, err := strconv.ParseInt(c.HSMKeyId, 10, 8)
+			_, err := hex.DecodeString(c.HSMKeyId)
 			if err != nil {
 				return fmt.Errorf("HSM key id %q: %w", c.HSMKeyId, err)
 			}
