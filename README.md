@@ -96,12 +96,34 @@ Signing Server Options:
       path to a file which contains the server private key
 ```
 
-## Signing tool
+
+## HSM Signing
+
+Using the *hsm* signing mode signing is switched to hardware-based
+signing, no private key is required anymore. The signing algorithms are
+the same. This mode is enabled by using the `--hsm-module` option.
+
+With `--hsm-module` the path to the HSM shared library is specified. This
+library is specific for your hardware signing module, which should be used
+for signing. For testing, you can use the `softhsm` library (for common
+Linux distributions this is typically `/usr/lib/softhsm/libsofthsm2.so`,
+other Unix-like systems use other paths)
+
+Additionally, the pass phrase and the id or label of the private key has to
+be specified. The slot is optional, by default, the first reported slot is
+used.
+
+## Usage Modes
+
+The executable can be used as signing command line tool to sign content
+given by option to the tool, or a signing server, which accepts signing requests via REST call.
+
+### Signing tool
 
 If called without the `--server` option it can be used as command line tool to sign hashes.
 It accepts options for the content encoding (`--encoding`), the data (`--data`, *&lt;filename>* or *stdin*), the hash algorithm (`--hash`) and the desired output format (`--format`)
 
-## Server
+### Signing Server
 
 If called with option `--server` an http(s) server
 is started able to serve signing requests.
@@ -111,21 +133,7 @@ signed by the server certificate.
 
 It requires a server certificate with optional certificate authority certificate for the web server and a certificate authority certificate for the validation of client certificates if the client authorization is not disabled.
 
-### HSM Signing
-
-Using the `hsm` signing options signing is switched to hardware-based signing,
-no private key is required anymore. The signing algorithms are the same.
-
-With `--hsm-module` the path to the HSM shared library is specified. This
-library is specific for your hardware signing module, which should be used for
-signing. For testing, you can use the `softhcm` library (for Unix systems
-this is typically `/usr/lib/softhsm/libsofthsm2.so`)
-
-Additionally, the pass phrase and the id or label of the private key has to
-be specified. The slot is optional, by default, the first reported slot is
-used.
-
-### Sign with RSASSA-PKCS1-V1_5
+#### Sign with RSASSA-PKCS1-V1_5
 
 Sign an arbitrary bytestream that is sent via the request body with the [RSASSA-PKCS1-V1_5](https://datatracker.ietf.org/doc/html/rfc3447#section-8.2) signature algorithm.
 
@@ -173,7 +181,7 @@ Sign an arbitrary bytestream that is sent via the request body with the [RSASSA-
 
 - **Request Body**
 
-  The data that should be signed.
+  The digest that should be signed.
 
 - **Success Response:**
 
@@ -183,6 +191,22 @@ Sign an arbitrary bytestream that is sent via the request body with the [RSASSA-
     ```text
     // Response format depends on the chosen format in the Accept header
     ```
+    
+#### Sign with RSASSA-PSS
+
+Sign a digest that is sent via the request body with the [RSASSA-PSS](https://datatracker.ietf.org/doc/html/rfc3447#section-8.1) signature algorithm.
+
+- **URL**
+
+  /sign/rsassa-pss
+
+- **Request Body**
+
+  similar ro RSASSA-PKCS1-V1_5.
+
+- **Success Response:**
+
+  similar ro RSASSA-PKCS1-V1_5.
 
 ## Setup
 

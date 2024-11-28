@@ -89,20 +89,27 @@ type Config struct {
 func (c *Config) SetupHSM() error {
 	c.Logger.Info("setup HSM signing", zap.String("module", c.HSMModule))
 	p := pkcs11.New(c.HSMModule)
+	if p == nil {
+		return fmt.Errorf("cannot create HSM access for PKCS#11")
+	}
 	err := p.Initialize()
 	if err != nil {
 		return err
 	}
 
+	slotreason := "by option"
 	if c.HSMSlot < 0 {
 		slots, err := p.GetSlotList(true)
 		if err != nil {
 			return fmt.Errorf("lookup HSM slots: %w", err)
-		} else {
-			c.HSMSlot = int(slots[0])
 		}
+		if len(slots) == 0 {
+			return fmt.Errorf("no slot found in HSM")
+		}
+		slotreason = fmt.Sprintf("first slot from %d available slots", len(slots))
+		c.HSMSlot = int(slots[0])
 	}
-	c.Logger.Info("using slot", zap.Int("slot", c.HSMSlot))
+	c.Logger.Info("using slot", zap.Int("slot", c.HSMSlot), zap.String("reason", slotreason))
 
 	session, err := p.OpenSession(uint(c.HSMSlot), pkcs11.CKF_SERIAL_SESSION|pkcs11.CKF_RW_SESSION)
 	if err != nil {
@@ -180,9 +187,6 @@ func (c *Config) Validate(args []string) error {
 		case strings.HasPrefix(c.HSMPass, "="):
 			c.HSMPass = c.HSMPass[1:]
 		}
-		if c.HSMPass == "" {
-			return errors.New("HSM passphrase required")
-		}
 
 		if (c.HSMKeyId == "" && c.HSMKeyLabel == "") || (c.HSMKeyId != "" && c.HSMKeyLabel != "") {
 			return errors.New("one of HSM key id or HSM key label required")
@@ -241,9 +245,15 @@ func createTLSConfig(host string, disableAuth bool, caCertsPath string, certPath
 	var caRootCertPool *x509.CertPool
 	var clientAuthType tls.ClientAuthType
 
-	privateKey, _, cert, err := parseRSAPrivateKey("server", privateKeyPath, certPath)
+	privateKey, _, cert, err := parseRSAPrivateKey("server", privateKeyPath)
 	if err != nil {
 		return nil, err
+	}
+	if cert == nil {
+		_, cert, err = parsePublicKeyCert("server", certPath)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if caCertsPath != "" {
@@ -359,9 +369,18 @@ func chains(chains [][]*x509.Certificate) string {
 	return r
 }
 
-func parseRSAPrivateKey(name string, privateKeyPath string, certPath string) (*rsa.PrivateKey, *pem.Block, *x509.Certificate, error) {
-	var cert *x509.Certificate
-	var block *pem.Block
+func parsePublicKeyCert(name string, certPath string) (*pem.Block, *x509.Certificate, error) {
+
+	if certPath != "" {
+		_, block, cert, err := parseCertificate(name, certPath)
+		if err == nil {
+			return block, cert, nil
+		}
+	}
+	return nil, nil, nil
+}
+
+func parseRSAPrivateKey(name string, privateKeyPath string) (*rsa.PrivateKey, *pem.Block, *x509.Certificate, error) {
 	privateKeyBytes, err := os.ReadFile(privateKeyPath)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("unable to read %s private key file: %w", name, err)
@@ -380,14 +399,7 @@ func parseRSAPrivateKey(name string, privateKeyPath string, certPath string) (*r
 			return nil, nil, nil, err
 		}
 		var block *pem.Block
-		if cert == nil {
-			if certPath != "" {
-				_, block, cert, err = parseCertificate(name, certPath)
-				if err != nil {
-					return nil, nil, nil, err
-				}
-			}
-		} else {
+		if cert != nil {
 			block = &pem.Block{
 				Type:  "CERTIFICATE",
 				Bytes: cert.Raw,
@@ -397,13 +409,6 @@ func parseRSAPrivateKey(name string, privateKeyPath string, certPath string) (*r
 			return k, block, cert, err
 		}
 		return nil, nil, nil, fmt.Errorf("no rsa key found in %q", privateKeyPath)
-	}
-
-	if certPath != "" {
-		_, block, cert, err = parseCertificate(name, certPath)
-		if err != nil {
-			return nil, nil, nil, err
-		}
 	}
 
 	privateKeyBlock, rest := pem.Decode(privateKeyBytes)
@@ -418,14 +423,14 @@ func parseRSAPrivateKey(name string, privateKeyPath string, certPath string) (*r
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("unable to parse pkcs1 private key: %w", err)
 		}
-		return rsaPrivateKey, block, cert, nil
+		return rsaPrivateKey, nil, nil, nil
 	} else if strings.ToLower(strings.Trim(privateKeyBlock.Type, "- ")) == "rsa private key" {
 		// found pem encoded PKCS #1, ASN.1 DER form
 		rsaPrivateKey, err := x509.ParsePKCS1PrivateKey(privateKeyBlock.Bytes)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("unable to parse pkcs1 private key: %w", err)
 		}
-		return rsaPrivateKey, block, cert, nil
+		return rsaPrivateKey, nil, nil, nil
 	} else {
 		// try parsing with PKCS #8, ASN.1 DER form in rest of cases
 		untypedPrivateKey, err := x509.ParsePKCS8PrivateKey(privateKeyBlock.Bytes)
@@ -438,20 +443,33 @@ func parseRSAPrivateKey(name string, privateKeyPath string, certPath string) (*r
 			return nil, nil, nil, fmt.Errorf("parsed pkcs8 private key is not of type *rsa.PrivateKey: actual type is %T", untypedPrivateKey)
 		}
 
-		return rsaPrivateKey, block, cert, nil
+		return rsaPrivateKey, nil, nil, nil
 	}
 }
 
 func run(cfg *Config) error {
 
-	if err := cfg.Validate(pflag.CommandLine.Args()); err != nil {
+	err := cfg.Validate(pflag.CommandLine.Args())
+	if err != nil {
 		return fmt.Errorf("unable to validate config: %w", err)
 	}
 
+	var block *pem.Block
+	var cert *x509.Certificate
+	var rsaPrivateKey *rsa.PrivateKey
+
 	// setup signing handlers
-	rsaPrivateKey, block, cert, err := parseRSAPrivateKey("signing", cfg.SigningPrivateKeyPath, cfg.SigningCertPath)
-	if err != nil {
-		return fmt.Errorf("unable to parse rsa private key: %w", err)
+	if cfg.HSMModule == "" {
+		rsaPrivateKey, block, cert, err = parseRSAPrivateKey("signing", cfg.SigningPrivateKeyPath)
+		if err != nil {
+			return fmt.Errorf("unable to parse rsa private key: %w", err)
+		}
+	}
+	if cert == nil {
+		block, cert, err = parsePublicKeyCert("signing", cfg.SigningCertPath)
+		if err != nil {
+			return err
+		}
 	}
 	var allCerts []*pem.Block
 	caBlocks, pool, err := parseCertificates("signing", cfg.SigningCaCertsPath, cfg.Logger)
