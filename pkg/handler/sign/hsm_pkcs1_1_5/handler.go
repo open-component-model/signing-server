@@ -2,6 +2,7 @@ package hsm_pkcs1_1_5
 
 import (
 	"crypto"
+	"fmt"
 	"net/http"
 
 	"github.com/miekg/pkcs11"
@@ -31,9 +32,12 @@ func (h *Handler) Name() string {
 }
 
 func (h *Handler) Sign(hashfunc crypto.Hash, data []byte) ([]byte, error) {
+	if hashfunc.Size() != len(data) {
+		return nil, fmt.Errorf("invalid hash size (found %d, but expected %d for %s", len(data), hashfunc.Size(), hashfunc.String())
+	}
 	err := h.ctx.SignInit(h.session, []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS, nil)}, h.priv)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	return h.ctx.Sign(h.session, data)
 }
