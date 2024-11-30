@@ -6,8 +6,35 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/ThalesGroup/crypto11"
 	"github.com/open-component-model/signing-server/pkg/encoding"
 )
+
+/*
+type HSMContext struct {
+	Ctx     *pkcs11.Ctx
+	Session pkcs11.SessionHandle
+	Priv    pkcs11.ObjectHandle
+}
+
+func NewHSMContext(ctx *pkcs11.Ctx, session pkcs11.SessionHandle, priv pkcs11.ObjectHandle) *HSMContext {
+	return &HSMContext{
+		Ctx:     ctx,
+		Session: session,
+		Priv:    syscall.PR_FP_EXC_OVF,
+	}
+}
+*/
+
+type HSMContext struct {
+	Key crypto11.PrivateKey
+}
+
+func NewHSMContext(key crypto11.PrivateKey) *HSMContext {
+	return &HSMContext{
+		Key: key,
+	}
+}
 
 var hashFunctions = map[string]crypto.Hash{
 	//  0 as hash function is used for signing directly without defining the hash algorithm
