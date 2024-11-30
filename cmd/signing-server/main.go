@@ -72,11 +72,12 @@ type Config struct {
 	DisableAuth        bool
 	DisableHTTPS       bool
 
-	HSMModule   string
-	HSMSlot     int
-	HSMPass     string
-	HSMKeyLabel string
-	HSMKeyId    string
+	HSMModule     string
+	HSMTokenLabel string
+	HSMSlot       int
+	HSMPass       string
+	HSMKeyLabel   string
+	HSMKeyId      string
 
 	HSMContext *sign.HSMContext
 
@@ -125,23 +126,29 @@ func (c *Config) SetupHSM() error {
 	}
 
 	slotreason := "by option"
-	if c.HSMSlot < 0 {
+	var slot *int
+	if c.HSMSlot < 0 && c.HSMTokenLabel == "" {
 		slots, err := c.lookupSlots()
 		if err != nil {
 			return fmt.Errorf("lookup HSM slots: %w", err)
 		}
 		slotreason = fmt.Sprintf("first slot from %d available slots", len(slots))
 		c.HSMSlot = int(slots[0])
+		slot = &c.HSMSlot
+	} else {
+		if c.HSMSlot >= 0 {
+			slot = &c.HSMSlot
+		}
 	}
 	c.Logger.Info("using slot", zap.Int("slot", c.HSMSlot), zap.String("reason", slotreason))
 
 	config := crypto11.Config{
 		Path:        c.HSMModule,
 		TokenSerial: "",
-		// TokenLabel:  "hsm1",
-		SlotNumber: &c.HSMSlot,
-		Pin:        c.HSMPass,
-		UserType:   crypto11.DefaultUserType,
+		TokenLabel:  c.HSMTokenLabel,
+		SlotNumber:  slot,
+		Pin:         c.HSMPass,
+		UserType:    crypto11.DefaultUserType,
 	}
 
 	ctx, err := crypto11.Configure(&config)
@@ -166,6 +173,9 @@ func (c *Config) Validate(args []string) error {
 	if c.HSMModule != "" {
 		if c.HSMPass == "" {
 			return errors.New("HSM passphrase required")
+		}
+		if c.HSMTokenLabel != "" && c.HSMSlot >= 0 {
+			return errors.New("only one of HSM token label or slot possible")
 		}
 		switch {
 		case strings.HasPrefix(c.HSMPass, "@"):
@@ -692,11 +702,12 @@ func main() {
 supported formats are:
 - PKCS#1 (.der, .pem)
 - PKCS#8 (.pem)
-- PKCS#12 (.pfx)`)
+- PKCS#12 (.pfx) (Password required in environment SIGNING_PFX_PASSWORD)`)
 	pflag.StringVar(&cfg.SigningCertPath, "signing-cert", "", "[OPTIONAL] path to a file which contains the signing certificate")
 	pflag.StringVar(&cfg.SigningCaCertsPath, "signing-ca-certs", "", "[OPTIONAL] path to a file which contains the signing ca certificates")
 
 	pflag.StringVar(&cfg.HSMModule, "hsm-module", "", "[OPTIONAL] path to HSM library")
+	pflag.StringVar(&cfg.HSMTokenLabel, "hsm-tokenlabel", "", "[OPTIONAL] HSM token label")
 	pflag.StringVar(&cfg.HSMPass, "hsm-pass", "", "[OPTIONAL] HSM passphrase (@... from file, =... from arg)")
 	pflag.StringVar(&cfg.HSMKeyId, "hsm-keyid", "", "[OPTIONAL] hsm key id")
 	pflag.StringVar(&cfg.HSMKeyLabel, "hsm-keylabel", "", "[OPTIONAL] hsm key label")
