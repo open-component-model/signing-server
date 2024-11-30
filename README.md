@@ -39,7 +39,7 @@ Common Signing Options:
         supported formats are:
         - PKCS#1 (.der, .pem)
         - PKCS#8 (.pem)
-        - PKCS#12 (.pfx)
+        - PKCS#12 (.pfx) (Password required in environment SIGNING_PFX_PASSWORD)
   --hsm-keyid string
         [OPTIONAL] hsm key id
   --hsm-keylabel string
@@ -50,6 +50,8 @@ Common Signing Options:
         [OPTIONAL] HSM passphrase (@... from file, =... from arg)
   --hsm-slot int
         [OPTIONAL] hsm slot (default -1)
+  --hsm-tokenlabel string
+        [OPTIONAL] HSM token label
 
   --stdout string
         redirect log, regular output and error output to given file
