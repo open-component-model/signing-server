@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ThalesGroup/crypto11"
 	"github.com/gorilla/mux"
 	"github.com/miekg/pkcs11"
 	"github.com/spf13/pflag"
@@ -77,92 +78,83 @@ type Config struct {
 	HSMKeyLabel string
 	HSMKeyId    string
 
-	HSMContext   *pkcs11.Ctx
-	HSMSession   pkcs11.SessionHandle
-	HSMKeyHandle pkcs11.ObjectHandle
+	HSMContext *sign.HSMContext
 
 	// calculated by program
 	Logger *zap.Logger
 }
 
-func (c *Config) SetupHSM() error {
-	c.Logger.Info("setup HSM signing", zap.String("module", c.HSMModule))
+func (c *Config) lookupSlots() ([]uint, error) {
 	p := pkcs11.New(c.HSMModule)
-	if p == nil {
-		return fmt.Errorf("cannot create HSM access for PKCS#11")
-	}
 	err := p.Initialize()
 	if err != nil {
-		return err
+		panic(err)
+	}
+
+	defer p.Destroy()
+	defer p.Finalize()
+
+	slots, err := p.GetSlotList(true)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get slot list: %w", err)
+	} else {
+		fmt.Printf("slots %v\n", slots)
+	}
+	if len(slots) == 0 {
+		return nil, fmt.Errorf("no slot found")
+	}
+	return slots, nil
+}
+
+func (c *Config) SetupHSM() error {
+	c.Logger.Info("setup HSM signing", zap.String("module", c.HSMModule))
+
+	var label []byte
+	var id []byte
+	if c.HSMKeyLabel != "" {
+		label = []byte(c.HSMKeyLabel)
+		c.Logger.Info("selecting key label", zap.String("label", c.HSMKeyLabel))
+	}
+	if c.HSMKeyId != "" {
+		keyid, err := hex.DecodeString(c.HSMKeyId)
+		if err != nil {
+			return fmt.Errorf("invalid key id %+v: %w", keyid, err)
+		}
+		c.Logger.Info("selecting key id", zap.String("id", c.HSMKeyId))
+		id = []byte(keyid)
 	}
 
 	slotreason := "by option"
 	if c.HSMSlot < 0 {
-		slots, err := p.GetSlotList(true)
+		slots, err := c.lookupSlots()
 		if err != nil {
 			return fmt.Errorf("lookup HSM slots: %w", err)
-		}
-		if len(slots) == 0 {
-			return fmt.Errorf("no slot found in HSM")
 		}
 		slotreason = fmt.Sprintf("first slot from %d available slots", len(slots))
 		c.HSMSlot = int(slots[0])
 	}
 	c.Logger.Info("using slot", zap.Int("slot", c.HSMSlot), zap.String("reason", slotreason))
 
-	session, err := p.OpenSession(uint(c.HSMSlot), pkcs11.CKF_SERIAL_SESSION|pkcs11.CKF_RW_SESSION)
+	config := crypto11.Config{
+		Path:        c.HSMModule,
+		TokenSerial: "",
+		// TokenLabel:  "hsm1",
+		SlotNumber: &c.HSMSlot,
+		Pin:        c.HSMPass,
+		UserType:   crypto11.DefaultUserType,
+	}
+
+	ctx, err := crypto11.Configure(&config)
 	if err != nil {
-		return fmt.Errorf("open HSM session: %w", err)
+		panic(err)
 	}
 
-	// c.Logger.Info("using pin", zap.String("pin", c.HSMPass))
-	err = p.Login(session, pkcs11.CKU_USER, c.HSMPass)
+	k, err := ctx.FindPrivateKey(id, label)
 	if err != nil {
-		p.CloseSession(session)
-		return fmt.Errorf("HSM login: %w", err)
+		return fmt.Errorf("lookup private key: %w", err)
 	}
 
-	attrs := []*pkcs11.Attribute{
-		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY),
-	}
-	if c.HSMKeyLabel != "" {
-		attrs = append(attrs, pkcs11.NewAttribute(pkcs11.CKA_LABEL, c.HSMKeyLabel))
-		c.Logger.Info("selecting key label", zap.String("label", c.HSMKeyLabel))
-	}
-	if c.HSMKeyId != "" {
-		id, err := hex.DecodeString(c.HSMKeyId)
-		if err != nil {
-			p.CloseSession(session)
-			p.Destroy()
-			return fmt.Errorf("invalid key id %+v: %w", id, err)
-		}
-		attrs = append(attrs, pkcs11.NewAttribute(pkcs11.CKA_ID, id))
-		c.Logger.Info("selecting key id", zap.String("id", c.HSMKeyId))
-	}
-	if err := p.FindObjectsInit(session, attrs); err != nil {
-		p.CloseSession(session)
-		p.Destroy()
-		return fmt.Errorf("HSM get private key handle %q: %w", c.HSMKeyId, err)
-	}
-
-	objs, _, err := p.FindObjects(session, 1)
-	if err != nil {
-		p.CloseSession(session)
-		p.Destroy()
-		return fmt.Errorf("find key failed: %w", err)
-	}
-	if len(objs) != 1 {
-		p.CloseSession(session)
-		p.Destroy()
-		return fmt.Errorf("key not found (%d)", len(objs))
-	}
-	p.FindObjectsFinal(session)
-
-	c.Logger.Info("key handle", zap.Uint("handle", uint(objs[0])))
-
-	c.HSMSession = session
-	c.HSMContext = p
-	c.HSMKeyHandle = objs[0]
+	c.HSMContext = sign.NewHSMContext(k)
 	return nil
 }
 
@@ -507,8 +499,8 @@ func run(cfg *Config) error {
 		if err != nil {
 			return fmt.Errorf("cannot setup HSM signing: %w", err)
 		}
-		sign.Register(hsm_pkcs1_1_5.New(cfg.HSMContext, cfg.HSMSession, cfg.HSMKeyHandle))
-		sign.Register(hsm_pss.New(cfg.HSMContext, cfg.HSMSession, cfg.HSMKeyHandle))
+		sign.Register(hsm_pkcs1_1_5.New(cfg.HSMContext))
+		sign.Register(hsm_pss.New(cfg.HSMContext))
 	} else {
 		sign.Register(rsassa_pkcs1_1_5.New(rsaPrivateKey))
 		sign.Register(rsassa_pss.New(rsaPrivateKey))
