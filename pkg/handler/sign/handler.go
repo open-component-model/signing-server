@@ -6,7 +6,8 @@ import (
 	"net/http"
 	"sort"
 
-	"github.com/ThalesGroup/crypto11"
+	"github.com/miekg/pkcs11"
+	"github.com/open-component-model/signing-server/pkg/crypto11"
 	"github.com/open-component-model/signing-server/pkg/encoding"
 )
 
@@ -27,12 +28,14 @@ func NewHSMContext(ctx *pkcs11.Ctx, session pkcs11.SessionHandle, priv pkcs11.Ob
 */
 
 type HSMContext struct {
-	Key crypto11.PrivateKey
+	Session *crypto11.Session
+	Key     pkcs11.ObjectHandle
 }
 
-func NewHSMContext(key crypto11.PrivateKey) *HSMContext {
+func NewHSMContext(session *crypto11.Session, key pkcs11.ObjectHandle) *HSMContext {
 	return &HSMContext{
-		Key: key,
+		Session: session,
+		Key:     key,
 	}
 }
 

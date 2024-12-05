@@ -16,9 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ThalesGroup/crypto11"
 	"github.com/gorilla/mux"
-	"github.com/miekg/pkcs11"
+	"github.com/open-component-model/signing-server/pkg/crypto11"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -85,83 +84,38 @@ type Config struct {
 	Logger *zap.Logger
 }
 
-func (c *Config) lookupSlots() ([]uint, error) {
-	p := pkcs11.New(c.HSMModule)
-	err := p.Initialize()
-	if err != nil {
-		panic(err)
-	}
-
-	defer p.Destroy()
-	defer p.Finalize()
-
-	slots, err := p.GetSlotList(true)
-	if err != nil {
-		return nil, fmt.Errorf("cannot get slot list: %w", err)
-	} else {
-		fmt.Printf("slots %v\n", slots)
-	}
-	if len(slots) == 0 {
-		return nil, fmt.Errorf("no slot found")
-	}
-	return slots, nil
-}
-
 func (c *Config) SetupHSM() error {
 	c.Logger.Info("setup HSM signing", zap.String("module", c.HSMModule))
 
-	var label []byte
-	var id []byte
 	if c.HSMKeyLabel != "" {
-		label = []byte(c.HSMKeyLabel)
 		c.Logger.Info("selecting key label", zap.String("label", c.HSMKeyLabel))
 	}
 	if c.HSMKeyId != "" {
-		keyid, err := hex.DecodeString(c.HSMKeyId)
-		if err != nil {
-			return fmt.Errorf("invalid key id %+v: %w", keyid, err)
-		}
 		c.Logger.Info("selecting key id", zap.String("id", c.HSMKeyId))
-		id = []byte(keyid)
 	}
 
-	slotreason := "by option"
 	var slot *int
-	if c.HSMSlot < 0 && c.HSMTokenLabel == "" {
-		slots, err := c.lookupSlots()
-		if err != nil {
-			return fmt.Errorf("lookup HSM slots: %w", err)
-		}
-		slotreason = fmt.Sprintf("first slot from %d available slots", len(slots))
-		c.HSMSlot = int(slots[0])
+	if c.HSMSlot >= 0 {
 		slot = &c.HSMSlot
-	} else {
-		if c.HSMSlot >= 0 {
-			slot = &c.HSMSlot
-		}
 	}
-	c.Logger.Info("using slot", zap.Int("slot", c.HSMSlot), zap.String("reason", slotreason))
-
-	config := crypto11.Config{
-		Path:        c.HSMModule,
-		TokenSerial: "",
-		TokenLabel:  c.HSMTokenLabel,
-		SlotNumber:  slot,
-		Pin:         c.HSMPass,
-		UserType:    crypto11.DefaultUserType,
+	config := &crypto11.Config{
+		Path:       c.HSMModule,
+		TokenLabel: c.HSMTokenLabel,
+		Slot:       slot,
+		Pin:        c.HSMPass,
 	}
 
-	ctx, err := crypto11.Configure(&config)
+	ctx, err := crypto11.NewSession(config)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
-	k, err := ctx.FindPrivateKey(id, label)
+	k, err := ctx.FindPrivateKey(c.HSMKeyId, c.HSMKeyLabel)
 	if err != nil {
 		return fmt.Errorf("lookup private key: %w", err)
 	}
 
-	c.HSMContext = sign.NewHSMContext(k)
+	c.HSMContext = sign.NewHSMContext(ctx, k)
 	return nil
 }
 

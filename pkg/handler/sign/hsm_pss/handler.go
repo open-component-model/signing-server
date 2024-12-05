@@ -37,7 +37,8 @@ func (h *Handler) Sign(hashfunc crypto.Hash, data []byte) ([]byte, error) {
 	if hashfunc.Size() != len(data) {
 		return nil, fmt.Errorf("invalid hash size (found %d, but expected %d for %s", len(data), hashfunc.Size(), hashfunc.String())
 	}
-	return h.ctx.Key.Sign(nil, data, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: hashfunc})
+	// SALT lengths larger than the digest size (suto mode) do not work together with cloud hsm.
+	return h.ctx.Session.SignPSS(h.ctx.Key, data, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: hashfunc})
 }
 
 func (h *Handler) HTTPHandler(responseBuilders map[string]encoding.ResponseBuilder, maxContentLength int) http.Handler {

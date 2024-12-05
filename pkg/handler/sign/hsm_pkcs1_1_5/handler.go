@@ -36,7 +36,7 @@ func (h *Handler) Sign(hashfunc crypto.Hash, data []byte) ([]byte, error) {
 	if hashfunc.Size() != len(data) {
 		return nil, fmt.Errorf("invalid hash size (found %d, but expected %d for %s", len(data), hashfunc.Size(), hashfunc.String())
 	}
-	return h.Ctx.Key.Sign(nil, data, hashfunc)
+	return h.Ctx.Session.SignPKCS1v15(h.Ctx.Key, data, hashfunc)
 }
 
 func (h *Handler) HTTPHandler(responseBuilders map[string]encoding.ResponseBuilder, maxContentLength int) http.Handler {
