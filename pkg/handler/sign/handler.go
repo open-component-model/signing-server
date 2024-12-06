@@ -6,8 +6,38 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/miekg/pkcs11"
+	"github.com/open-component-model/signing-server/pkg/crypto11"
 	"github.com/open-component-model/signing-server/pkg/encoding"
 )
+
+/*
+type HSMContext struct {
+	Ctx     *pkcs11.Ctx
+	Session pkcs11.SessionHandle
+	Priv    pkcs11.ObjectHandle
+}
+
+func NewHSMContext(ctx *pkcs11.Ctx, session pkcs11.SessionHandle, priv pkcs11.ObjectHandle) *HSMContext {
+	return &HSMContext{
+		Ctx:     ctx,
+		Session: session,
+		Priv:    syscall.PR_FP_EXC_OVF,
+	}
+}
+*/
+
+type HSMContext struct {
+	Session *crypto11.Session
+	Key     pkcs11.ObjectHandle
+}
+
+func NewHSMContext(session *crypto11.Session, key pkcs11.ObjectHandle) *HSMContext {
+	return &HSMContext{
+		Session: session,
+		Key:     key,
+	}
+}
 
 var hashFunctions = map[string]crypto.Hash{
 	//  0 as hash function is used for signing directly without defining the hash algorithm
