@@ -11,18 +11,31 @@ import (
 // errTokenNotFound represents the failure to find the requested PKCS#11 token
 var errTokenNotFound = errors.New("could not find PKCS#11 token")
 
+// Session describes the PKCS##11 elements used to access the
+// private key used for signing.
 type Session struct {
 	Ctx    *pkcs11.Ctx
 	Handle pkcs11.SessionHandle
 }
 
+// Config describes the attributes required to access
+// a dedicated HSM slot according to PKCS#11.
 type Config struct {
-	Path       string
+	// Path is the OS filesystem path to the used HSM library.
+	Path string
+	// TokenLabel is an optional attribute to provide the label
+	// of the slot token to use.
 	TokenLabel string
-	Slot       *int
-	Pin        string
+	// Slot is an optional attribute to configure the slot number to use.
+	// If neither a slot nor a token is specified, the first found slot
+	// is used.
+	Slot *int
+	// Pin is the password used to access the described slot.
+	Pin string
 }
 
+// NewSession provides a session object for working with HSM signing
+// based on some HCM config provided by the Config type.
 func NewSession(cfg *Config) (*Session, error) {
 	p := pkcs11.New(cfg.Path)
 	if p == nil {
@@ -64,11 +77,10 @@ func NewSession(cfg *Config) (*Session, error) {
 }
 
 func findSlot(cfg *Config, p *pkcs11.Ctx, slots []uint) (uint, error) {
-	if cfg.Slot == nil && cfg.TokenLabel == "" {
-		slots, err := lookupSlots(p)
-		if err != nil {
-			return 0, fmt.Errorf("lookup HSM slots: %w", err)
-		}
+	if len(slots) == 0 {
+		return 0, errTokenNotFound
+	}
+	if cfg.TokenLabel == "" {
 		return slots[0], nil
 	}
 	for _, slot := range slots {
@@ -98,6 +110,9 @@ func lookupSlots(p *pkcs11.Ctx) ([]uint, error) {
 }
 
 func (s *Session) Close() error {
+	if s == nil {
+		return nil
+	}
 	err := s.Ctx.CloseSession(s.Handle)
 	s.Ctx.Destroy()
 	return err

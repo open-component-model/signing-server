@@ -1,3 +1,5 @@
+// Package hsm_pkcs1_1_5 provides the HSM based signing method
+// according to PKCS1.1.5.
 package hsm_pkcs1_1_5
 
 import (

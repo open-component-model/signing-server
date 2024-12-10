@@ -1,3 +1,5 @@
+// Package hsm_pss provides the HSM based signing method
+// according PSS signing.
 package hsm_pss
 
 import (

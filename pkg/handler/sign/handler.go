@@ -27,6 +27,9 @@ func NewHSMContext(ctx *pkcs11.Ctx, session pkcs11.SessionHandle, priv pkcs11.Ob
 }
 */
 
+// HSMContext describes the signing environment based on PKCS#11.
+// It contains the session to use for executing the signing operations
+// and the PKCS#11 handle to access the private key to use.
 type HSMContext struct {
 	Session *crypto11.Session
 	Key     pkcs11.ObjectHandle
@@ -37,6 +40,10 @@ func NewHSMContext(session *crypto11.Session, key pkcs11.ObjectHandle) *HSMConte
 		Session: session,
 		Key:     key,
 	}
+}
+
+func (c *HSMContext) Close() error {
+	return c.Session.Close()
 }
 
 var hashFunctions = map[string]crypto.Hash{

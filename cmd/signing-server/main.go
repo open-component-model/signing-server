@@ -84,6 +84,8 @@ type Config struct {
 	Logger *zap.Logger
 }
 
+// SetupHSM initializes the access the hardware signing module
+// according to PKCS#11, if MSM signing is enabled.
 func (c *Config) SetupHSM() error {
 	c.Logger.Info("setup HSM signing", zap.String("module", c.HSMModule))
 
@@ -459,13 +461,18 @@ func run(cfg *Config) error {
 	}
 
 	if cfg.HSMModule != "" {
+		// for HSM signing according to PKCS#11 the signing
+		// methods based on the sign.HSMContext are registered.
 		err := cfg.SetupHSM()
 		if err != nil {
 			return fmt.Errorf("cannot setup HSM signing: %w", err)
 		}
+		defer cfg.HSMContext.Close()
 		sign.Register(hsm_pkcs1_1_5.New(cfg.HSMContext))
 		sign.Register(hsm_pss.New(cfg.HSMContext))
 	} else {
+		// regularily the standard local Go based signing functions
+		// are registered.
 		sign.Register(rsassa_pkcs1_1_5.New(rsaPrivateKey))
 		sign.Register(rsassa_pss.New(rsaPrivateKey))
 	}
