@@ -1,5 +1,7 @@
 package crypto11
 
+// inspired from https://github.com/thalesgroup/crypto11.
+
 import (
 	"encoding/hex"
 	"fmt"
