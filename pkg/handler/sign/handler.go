@@ -11,22 +11,6 @@ import (
 	"github.com/open-component-model/signing-server/pkg/encoding"
 )
 
-/*
-type HSMContext struct {
-	Ctx     *pkcs11.Ctx
-	Session pkcs11.SessionHandle
-	Priv    pkcs11.ObjectHandle
-}
-
-func NewHSMContext(ctx *pkcs11.Ctx, session pkcs11.SessionHandle, priv pkcs11.ObjectHandle) *HSMContext {
-	return &HSMContext{
-		Ctx:     ctx,
-		Session: session,
-		Priv:    syscall.PR_FP_EXC_OVF,
-	}
-}
-*/
-
 // HSMContext describes the signing environment based on PKCS#11.
 // It contains the session to use for executing the signing operations
 // and the PKCS#11 handle to access the private key to use.
