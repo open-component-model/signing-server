@@ -11,22 +11,22 @@ import (
 	"github.com/open-component-model/signing-server/pkg/encoding"
 )
 
-// HSMContext describes the signing environment based on PKCS#11.
+// HSMOptions describes the signing environment based on PKCS#11.
 // It contains the session to use for executing the signing operations
 // and the PKCS#11 handle to access the private key to use.
-type HSMContext struct {
+type HSMOptions struct {
 	Session *crypto11.Session
 	Key     pkcs11.ObjectHandle
 }
 
-func NewHSMContext(session *crypto11.Session, key pkcs11.ObjectHandle) *HSMContext {
-	return &HSMContext{
+func NewHSMOptions(session *crypto11.Session, key pkcs11.ObjectHandle) HSMOptions {
+	return HSMOptions{
 		Session: session,
 		Key:     key,
 	}
 }
 
-func (c *HSMContext) Close() error {
+func (c *HSMOptions) Close() error {
 	return c.Session.Close()
 }
 

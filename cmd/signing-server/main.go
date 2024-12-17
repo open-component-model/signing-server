@@ -78,7 +78,7 @@ type Config struct {
 	HSMKeyLabel   string
 	HSMKeyId      string
 
-	HSMContext *sign.HSMContext
+	HSMContext sign.HSMOptions
 
 	// calculated by program
 	Logger *zap.Logger
@@ -117,7 +117,7 @@ func (c *Config) SetupHSM() error {
 		return fmt.Errorf("lookup private key: %w", err)
 	}
 
-	c.HSMContext = sign.NewHSMContext(ctx, k)
+	c.HSMContext = sign.NewHSMOptions(ctx, k)
 	return nil
 }
 

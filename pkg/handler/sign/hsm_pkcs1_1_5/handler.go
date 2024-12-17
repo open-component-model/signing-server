@@ -22,12 +22,12 @@ const (
 
 var mechanism = pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS, nil)
 
-func New(ctx *sign.HSMContext) sign.SignHandler {
-	return &Handler{ctx}
+func New(opt sign.HSMOptions) sign.SignHandler {
+	return &Handler{opt}
 }
 
 type Handler struct {
-	Ctx *sign.HSMContext
+	options sign.HSMOptions
 }
 
 func (h *Handler) Name() string {
@@ -38,7 +38,7 @@ func (h *Handler) Sign(hashfunc crypto.Hash, data []byte) ([]byte, error) {
 	if hashfunc.Size() != len(data) {
 		return nil, fmt.Errorf("invalid hash size (found %d, but expected %d for %s", len(data), hashfunc.Size(), hashfunc.String())
 	}
-	return h.Ctx.Session.SignPKCS1v15(h.Ctx.Key, data, hashfunc)
+	return h.options.Session.SignPKCS1v15(h.options.Key, data, hashfunc)
 }
 
 func (h *Handler) HTTPHandler(responseBuilders map[string]encoding.ResponseBuilder, maxContentLength int) http.Handler {

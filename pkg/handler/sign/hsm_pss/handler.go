@@ -23,12 +23,12 @@ const (
 
 var mechanism = pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_PSS, nil)
 
-func New(ctx *sign.HSMContext) sign.SignHandler {
-	return &Handler{ctx}
+func New(opt sign.HSMOptions) sign.SignHandler {
+	return &Handler{opt}
 }
 
 type Handler struct {
-	ctx *sign.HSMContext
+	options sign.HSMOptions
 }
 
 func (h *Handler) Name() string {
@@ -40,7 +40,7 @@ func (h *Handler) Sign(hashfunc crypto.Hash, data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("invalid hash size (found %d, but expected %d for %s", len(data), hashfunc.Size(), hashfunc.String())
 	}
 	// SALT lengths larger than the digest size (suto mode) do not work together with cloud hsm.
-	return h.ctx.Session.SignPSS(h.ctx.Key, data, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: hashfunc})
+	return h.options.Session.SignPSS(h.options.Key, data, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: hashfunc})
 }
 
 func (h *Handler) HTTPHandler(responseBuilders map[string]encoding.ResponseBuilder, maxContentLength int) http.Handler {
