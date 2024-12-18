@@ -14,9 +14,9 @@ convertPem() {
 }
 
 creds=( --cred :type=Signingserver.gardener.cloud --cred :hostname=localhost \
-        --cred clientCert=$(cat local/client/client-cert.pem) \
-        --cred privateKey=$(cat local/client/client-key.pem) \
-        --cred caCerts=$(cat local/server/ca-cert.pem) \
+        --cred clientCert="$(cat local/client/client-cert.pem)" \
+        --cred privateKey="$(cat local/client/client-key.pem)" \
+        --cred caCerts="$(cat local/server/ca-cert.pem)" \
       )
 
 echo create "$CA"

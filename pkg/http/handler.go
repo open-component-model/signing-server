@@ -79,7 +79,8 @@ func (h *DefaultHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		HandleHTTPError("invalid request content", err, http.StatusBadRequest, logger, w)
 		return
 	}
-	logger.Info("data", zap.String("hex", hex.EncodeToString(data)), zap.String("hash", hashfunc.String()))
+	logger.Info("data", zap.String("hex", hex.EncodeToString(data)), zap.String("hash", hashfunc.String()),
+		zap.String("signer", fmt.Sprintf("%T", h.signer)))
 	signature, err := h.signer.Sign(hashfunc, data)
 	if err != nil {
 		HandleHTTPError("unable to sign", err, http.StatusInternalServerError, logger, w)

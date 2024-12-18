@@ -5,11 +5,11 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,16 +17,18 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/open-component-model/signing-server/pkg/handler/sign/rsassa_pss"
+	"github.com/open-component-model/signing-server/pkg/crypto11"
 	"github.com/spf13/pflag"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"golang.org/x/crypto/pkcs12"
 
-	"go.uber.org/zap"
-
 	"github.com/open-component-model/signing-server/pkg/encoding"
 	"github.com/open-component-model/signing-server/pkg/handler/sign"
+	"github.com/open-component-model/signing-server/pkg/handler/sign/hsm_pkcs1_1_5"
+	"github.com/open-component-model/signing-server/pkg/handler/sign/hsm_pss"
 	"github.com/open-component-model/signing-server/pkg/handler/sign/rsassa_pkcs1_1_5"
+	"github.com/open-component-model/signing-server/pkg/handler/sign/rsassa_pss"
 	logutil "github.com/open-component-model/signing-server/pkg/log"
 	"github.com/open-component-model/signing-server/pkg/sys"
 )
@@ -69,14 +71,91 @@ type Config struct {
 	DisableAuth        bool
 	DisableHTTPS       bool
 
+	HSMModule     string
+	HSMTokenLabel string
+	HSMSlot       int
+	HSMPass       string
+	HSMKeyLabel   string
+	HSMKeyId      string
+
+	HSMContext sign.HSMOptions
+
 	// calculated by program
 	Logger *zap.Logger
 }
 
-func (c *Config) Validate(args []string) error {
-	if c.SigningPrivateKeyPath == "" {
-		return errors.New("path to private key file must be set")
+// SetupHSM initializes the access the hardware signing module
+// according to PKCS#11, if MSM signing is enabled.
+func (c *Config) SetupHSM() error {
+	c.Logger.Info("setup HSM signing", zap.String("module", c.HSMModule))
+
+	if c.HSMKeyLabel != "" {
+		c.Logger.Info("selecting key label", zap.String("label", c.HSMKeyLabel))
 	}
+	if c.HSMKeyId != "" {
+		c.Logger.Info("selecting key id", zap.String("id", c.HSMKeyId))
+	}
+
+	var slot *int
+	if c.HSMSlot >= 0 {
+		slot = &c.HSMSlot
+	}
+	config := &crypto11.Config{
+		Path:       c.HSMModule,
+		TokenLabel: c.HSMTokenLabel,
+		Slot:       slot,
+		Pin:        c.HSMPass,
+	}
+
+	ctx, err := crypto11.NewSession(config)
+	if err != nil {
+		return err
+	}
+
+	k, err := ctx.FindPrivateKey(c.HSMKeyId, c.HSMKeyLabel)
+	if err != nil {
+		return fmt.Errorf("lookup private key: %w", err)
+	}
+
+	c.HSMContext = sign.NewHSMOptions(ctx, k)
+	return nil
+}
+
+func (c *Config) Validate(args []string) error {
+	if c.SigningPrivateKeyPath == "" && c.HSMModule == "" {
+		return errors.New("path to private key file or HSM module must be set")
+	}
+
+	if c.HSMModule != "" {
+		if c.HSMPass == "" {
+			return errors.New("HSM passphrase required")
+		}
+		if c.HSMTokenLabel != "" && c.HSMSlot >= 0 {
+			return errors.New("only one of HSM token label or slot possible")
+		}
+		switch {
+		case strings.HasPrefix(c.HSMPass, "@"):
+			pass, err := os.ReadFile(c.HSMPass[1:])
+			if err != nil {
+				return fmt.Errorf("cannot read passphrase from %q: %w", c.HSMPass[1:], err)
+			}
+			c.HSMPass = string(pass)
+
+		case strings.HasPrefix(c.HSMPass, "="):
+			c.HSMPass = c.HSMPass[1:]
+		}
+
+		if (c.HSMKeyId == "" && c.HSMKeyLabel == "") || (c.HSMKeyId != "" && c.HSMKeyLabel != "") {
+			return errors.New("one of HSM key id or HSM key label required")
+		}
+		if c.HSMKeyId != "" {
+			_, err := hex.DecodeString(c.HSMKeyId)
+			if err != nil {
+				return fmt.Errorf("HSM key id %q: %w", c.HSMKeyId, err)
+			}
+		}
+	}
+
 	if c.MaxBodySizeBytes <= 0 {
 		return errors.New("max body size must be > 0")
 	}
@@ -123,9 +202,15 @@ func createTLSConfig(host string, disableAuth bool, caCertsPath string, certPath
 	var caRootCertPool *x509.CertPool
 	var clientAuthType tls.ClientAuthType
 
-	privateKey, _, cert, err := parseRSAPrivateKey("server", privateKeyPath, certPath)
+	privateKey, cert, err := parseRSAPrivateKey("server", privateKeyPath)
 	if err != nil {
 		return nil, err
+	}
+	if cert == nil {
+		cert, err = parsePublicKeyCert("server", certPath)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if caCertsPath != "" {
@@ -133,7 +218,7 @@ func createTLSConfig(host string, disableAuth bool, caCertsPath string, certPath
 		if err != nil {
 			return nil, err
 		}
-		caCert, err := ioutil.ReadFile(caCertsPath)
+		caCert, err := os.ReadFile(caCertsPath)
 		if err != nil {
 			return nil, fmt.Errorf("unable to open ca certs file: %w", err)
 		}
@@ -154,7 +239,7 @@ func createTLSConfig(host string, disableAuth bool, caCertsPath string, certPath
 	} else {
 		clientAuthType = tls.RequireAndVerifyClientCert
 		caCertPool = x509.NewCertPool()
-		caCerts, err := ioutil.ReadFile(clientCaCertsPath)
+		caCerts, err := os.ReadFile(clientCaCertsPath)
 		if err != nil {
 			return nil, fmt.Errorf("unable to open client ca certs file: %w", err)
 		}
@@ -178,25 +263,26 @@ func createTLSConfig(host string, disableAuth bool, caCertsPath string, certPath
 	}, nil
 }
 
-func parseCertificate(name string, certPath string) ([]byte, *pem.Block, *x509.Certificate, error) {
+func parseCertificate(name string, certPath string) (*x509.Certificate, error) {
 	certBytes, err := os.ReadFile(certPath)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("unable to read %s cert file %q: %w", name, certPath, err)
+		return nil, fmt.Errorf("unable to read %s cert file %q: %w", name, certPath, err)
 	}
 
 	certBlock, rest := pem.Decode(certBytes)
-	if certBlock == nil && len(rest) > 0 {
-		return nil, nil, nil, fmt.Errorf("unable to parse %s cert file %q: unable to pem decode %s", name, certPath, string(rest))
+	if certBlock == nil {
+		return nil, fmt.Errorf("unable to parse %s cert file %q: unable to pem decode %s", name, certPath, string(rest))
 	}
 
 	cert, err := x509.ParseCertificate(certBlock.Bytes)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("parse %s certificate from %q: %w", name, certPath, err)
+		return nil, fmt.Errorf("parse %s certificate from %q: %w", name, certPath, err)
 	}
-	return certBytes, certBlock, cert, err
+
+	return cert, err
 }
 
-func parseCertificates(name string, caCertsPath string, logger *zap.Logger) ([]*pem.Block, *x509.CertPool, error) {
+func parseCertificates(name string, caCertsPath string) ([]*pem.Block, *x509.CertPool, error) {
 	roots, err := x509.SystemCertPool()
 	if err != nil {
 		return nil, nil, err
@@ -241,102 +327,124 @@ func chains(chains [][]*x509.Certificate) string {
 	return r
 }
 
-func parseRSAPrivateKey(name string, privateKeyPath string, certPath string) (*rsa.PrivateKey, *pem.Block, *x509.Certificate, error) {
-	var cert *x509.Certificate
-	var block *pem.Block
+func parsePublicKeyCert(name string, certPath string) (*x509.Certificate, error) {
+	if certPath == "" {
+		return nil, nil
+	}
+	return parseCertificate(name, certPath)
+}
+
+// certToPEM converts an x509 certificate to a PEM block as a shortform.
+func certToPEM(cert *x509.Certificate) *pem.Block {
+	return &pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: cert.Raw,
+	}
+}
+
+// parseRSAPrivateKey reads and parses an RSA private key from a file.
+// It supports PKCS#1, PKCS#8, and PKCS#12 (.pfx) formats.
+//
+// If the private key is in PKCS#12 format, the password must be provided in the environment variable
+// with the name <name>_PFX_PASSWORD, where <name> is the name of the key (e.g. SIGNING_PFX_PASSWORD).
+//
+// Parameters:
+//   - name: A string representing the name of the key, used for error messages and environment variable lookup.
+//     Goes unused if the key is not in PKCS#12 format.
+//   - privateKeyPath: A string representing the path to the private key file.
+//
+// Returns:
+// - *rsa.PrivateKey: A pointer to the parsed RSA private key.
+// - *x509.Certificate: A pointer to the parsed x509 certificate (if available, only valid for PKCS#12).
+// - error: An error if any occurred during the parsing process.
+func parseRSAPrivateKey(name string, privateKeyPath string) (*rsa.PrivateKey, *x509.Certificate, error) {
 	privateKeyBytes, err := os.ReadFile(privateKeyPath)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("unable to read %s private key file: %w", name, err)
+		return nil, nil, fmt.Errorf("unable to read %s private key file: %w", name, err)
 	}
 	if strings.HasSuffix(privateKeyPath, ".pfx") {
 		ename := fmt.Sprintf("%s_PFX_PASSWORD", strings.ToUpper(name))
 		pw, ok := os.LookupEnv(ename)
 		if !ok {
-			return nil, nil, nil, fmt.Errorf("password for %s pfx file required in environment (%s)", name, ename)
+			return nil, nil, fmt.Errorf("password for %s pfx file required in environment (%s)", name, ename)
 		}
 		if pw == "" {
-			return nil, nil, nil, fmt.Errorf("non-empty password for %s pfx file required in environment (%s)", name, ename)
+			return nil, nil, fmt.Errorf("non-empty password for %s pfx file required in environment (%s)", name, ename)
 		}
 		key, cert, err := pkcs12.Decode(privateKeyBytes, pw)
 		if err != nil {
-			return nil, nil, nil, err
-		}
-		var block *pem.Block
-		if cert == nil {
-			if certPath != "" {
-				_, block, cert, err = parseCertificate(name, certPath)
-				if err != nil {
-					return nil, nil, nil, err
-				}
-			}
-		} else {
-			block = &pem.Block{
-				Type:  "CERTIFICATE",
-				Bytes: cert.Raw,
-			}
+			return nil, nil, err
 		}
 		if k, ok := key.(*rsa.PrivateKey); ok {
-			return k, block, cert, err
+			return k, cert, err
 		}
-		return nil, nil, nil, fmt.Errorf("no rsa key found in %q", privateKeyPath)
-	}
-
-	if certPath != "" {
-		_, block, cert, err = parseCertificate(name, certPath)
-		if err != nil {
-			return nil, nil, nil, err
-		}
+		return nil, nil, fmt.Errorf("no rsa key found in %q", privateKeyPath)
 	}
 
 	privateKeyBlock, rest := pem.Decode(privateKeyBytes)
 	if privateKeyBlock != nil && len(rest) > 0 {
-		return nil, nil, nil, fmt.Errorf("private key file contains undecodable data besides pem block: %s", string(rest))
+		return nil, nil, fmt.Errorf("private key file contains undecodable data besides pem block: %s", string(rest))
 	}
 
-	if privateKeyBlock == nil && len(rest) == len(privateKeyBytes) {
-		// found no pem data in private key file
-		// try parsing with PKCS #1, ASN.1 DER form (binary)
-		rsaPrivateKey, err := x509.ParsePKCS1PrivateKey(privateKeyBytes)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("unable to parse pkcs1 private key: %w", err)
+	if privateKeyBlock == nil {
+		if len(rest) == len(privateKeyBytes) {
+			// found no pem data in private key file
+			// try parsing with PKCS #1, ASN.1 DER form (binary)
+			rsaPrivateKey, err := x509.ParsePKCS1PrivateKey(privateKeyBytes)
+			if err != nil {
+				return nil, nil, fmt.Errorf("unable to parse pkcs1 private key: %w", err)
+			}
+			return rsaPrivateKey, nil, nil
 		}
-		return rsaPrivateKey, block, cert, nil
+		return nil, nil, fmt.Errorf("unable to parse pkcs1 private key after parsing the private key block: no valid private key block found")
 	} else if strings.ToLower(strings.Trim(privateKeyBlock.Type, "- ")) == "rsa private key" {
 		// found pem encoded PKCS #1, ASN.1 DER form
 		rsaPrivateKey, err := x509.ParsePKCS1PrivateKey(privateKeyBlock.Bytes)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("unable to parse pkcs1 private key: %w", err)
+			return nil, nil, fmt.Errorf("unable to parse pkcs1 private key: %w", err)
 		}
-		return rsaPrivateKey, block, cert, nil
+		return rsaPrivateKey, nil, nil
 	} else {
 		// try parsing with PKCS #8, ASN.1 DER form in rest of cases
 		untypedPrivateKey, err := x509.ParsePKCS8PrivateKey(privateKeyBlock.Bytes)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("unable to parse pkcs8 private key: %w", err)
+			return nil, nil, fmt.Errorf("unable to parse pkcs8 private key: %w", err)
 		}
 
 		rsaPrivateKey, ok := untypedPrivateKey.(*rsa.PrivateKey)
 		if !ok {
-			return nil, nil, nil, fmt.Errorf("parsed pkcs8 private key is not of type *rsa.PrivateKey: actual type is %T", untypedPrivateKey)
+			return nil, nil, fmt.Errorf("parsed pkcs8 private key is not of type *rsa.PrivateKey: actual type is %T", untypedPrivateKey)
 		}
 
-		return rsaPrivateKey, block, cert, nil
+		return rsaPrivateKey, nil, nil
 	}
 }
 
 func run(cfg *Config) error {
 
-	if err := cfg.Validate(pflag.CommandLine.Args()); err != nil {
+	err := cfg.Validate(pflag.CommandLine.Args())
+	if err != nil {
 		return fmt.Errorf("unable to validate config: %w", err)
 	}
 
+	var cert *x509.Certificate
+	var rsaPrivateKey *rsa.PrivateKey
+
 	// setup signing handlers
-	rsaPrivateKey, block, cert, err := parseRSAPrivateKey("signing", cfg.SigningPrivateKeyPath, cfg.SigningCertPath)
-	if err != nil {
-		return fmt.Errorf("unable to parse rsa private key: %w", err)
+	if cfg.HSMModule == "" {
+		rsaPrivateKey, cert, err = parseRSAPrivateKey("signing", cfg.SigningPrivateKeyPath)
+		if err != nil {
+			return fmt.Errorf("unable to parse rsa private key: %w", err)
+		}
+	}
+	if cert == nil {
+		cert, err = parsePublicKeyCert("signing", cfg.SigningCertPath)
+		if err != nil {
+			return err
+		}
 	}
 	var allCerts []*pem.Block
-	caBlocks, pool, err := parseCertificates("signing", cfg.SigningCaCertsPath, cfg.Logger)
+	caBlocks, pool, err := parseCertificates("signing", cfg.SigningCaCertsPath)
 	if err != nil {
 		return err
 	}
@@ -346,14 +454,28 @@ func run(cfg *Config) error {
 			return fmt.Errorf("cannot verify signing certificate: %w", err)
 		}
 		cfg.Logger.Info("issuing signing chain", zap.String("issuer chain", chains(chain)))
-		allCerts = append(allCerts, block)
+		allCerts = append(allCerts, certToPEM(cert))
 	}
 	if len(caBlocks) > 0 {
 		allCerts = append(allCerts, caBlocks...)
 	}
 
-	sign.Register(rsassa_pkcs1_1_5.New(rsaPrivateKey))
-	sign.Register(rsassa_pss.New(rsaPrivateKey))
+	if cfg.HSMModule != "" {
+		// for HSM signing according to PKCS#11 the signing
+		// methods based on the sign.HSMContext are registered.
+		err := cfg.SetupHSM()
+		if err != nil {
+			return fmt.Errorf("cannot setup HSM signing: %w", err)
+		}
+		defer cfg.HSMContext.Close()
+		sign.Register(hsm_pkcs1_1_5.New(cfg.HSMContext))
+		sign.Register(hsm_pss.New(cfg.HSMContext))
+	} else {
+		// regularily the standard local Go based signing functions
+		// are registered.
+		sign.Register(rsassa_pkcs1_1_5.New(rsaPrivateKey))
+		sign.Register(rsassa_pss.New(rsaPrivateKey))
+	}
 
 	for _, n := range cfg.SupportedAlgorithms {
 		if _, err := sign.Get(n); err != nil {
@@ -372,7 +494,7 @@ func run(cfg *Config) error {
 				return err
 			}
 		}
-		return RunServer(cfg, allCerts, responseBuilders)
+		return RunServer(cfg, responseBuilders)
 	} else {
 		return RunSigner(cfg, pflag.CommandLine.Args(), responseBuilders)
 	}
@@ -420,6 +542,7 @@ func RunSigner(cfg *Config, args []string, responseBuilders map[string]encoding.
 	if err != nil {
 		return fmt.Errorf("cannot decode input: %w", err)
 	}
+	cfg.Logger.Info("sign", zap.String("digest", hex.EncodeToString(data)), zap.String("signer", fmt.Sprintf("%v", signer)))
 	signature, err := signer.Sign(hashfunc, data)
 	if err != nil {
 		return err
@@ -440,7 +563,7 @@ func RunSigner(cfg *Config, args []string, responseBuilders map[string]encoding.
 	return err
 }
 
-func RunServer(cfg *Config, allCerts []*pem.Block, responseBuilders map[string]encoding.ResponseBuilder) error {
+func RunServer(cfg *Config, responseBuilders map[string]encoding.ResponseBuilder) error {
 	var err error
 
 	addr := ":" + cfg.Port
@@ -536,13 +659,20 @@ func main() {
 	pflag.StringVar(&cfg.Algorithm, "algorithm", rsassa_pkcs1_1_5.Algorithm, "[OPTIONAL] signing algorithm")
 	pflag.StringVar(&cfg.OutFile, "out", "", "[OPTIONAL] output file")
 
-	pflag.StringVar(&cfg.SigningPrivateKeyPath, "private-key", "", `path to a file which contains the private signing key.
+	pflag.StringVar(&cfg.SigningPrivateKeyPath, "private-key", "", `(non-hsm) path to a file which contains the private signing key.
 supported formats are:
 - PKCS#1 (.der, .pem)
 - PKCS#8 (.pem)
-- PKCS#12 (.pfx)`)
+- PKCS#12 (.pfx) (Password required in environment SIGNING_PFX_PASSWORD)`)
 	pflag.StringVar(&cfg.SigningCertPath, "signing-cert", "", "[OPTIONAL] path to a file which contains the signing certificate")
 	pflag.StringVar(&cfg.SigningCaCertsPath, "signing-ca-certs", "", "[OPTIONAL] path to a file which contains the signing ca certificates")
+
+	pflag.StringVar(&cfg.HSMModule, "hsm-module", "", "[OPTIONAL] path to HSM library")
+	pflag.StringVar(&cfg.HSMTokenLabel, "hsm-tokenlabel", "", "[OPTIONAL] HSM token label")
+	pflag.StringVar(&cfg.HSMPass, "hsm-pass", "", "[OPTIONAL] HSM passphrase (@... from file, =... from arg)")
+	pflag.StringVar(&cfg.HSMKeyId, "hsm-keyid", "", "[OPTIONAL] hsm key id")
+	pflag.StringVar(&cfg.HSMKeyLabel, "hsm-keylabel", "", "[OPTIONAL] hsm key label")
+	pflag.IntVar(&cfg.HSMSlot, "hsm-slot", -1, "[OPTIONAL] hsm slot")
 
 	pflag.StringVar(&cfg.ServerKeyPath, "server-key", "", "path to a file which contains the server private key")
 	pflag.StringVar(&cfg.CertPath, "cert", "", "path to a file which contains the server certificate in pem format")

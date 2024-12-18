@@ -1,13 +1,14 @@
-FROM golang:1-alpine AS builder
+FROM golang:1.23-bookworm AS builder
 
 WORKDIR /app
 
 COPY go.mod go.sum ./
 COPY vendor/ vendor/
+RUN go mod verify
 COPY pkg/ pkg/
 COPY cmd/signing-server/ ./cmd/signing-server
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -mod vendor -a -o signing-server cmd/signing-server/main.go
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -a -o signing-server cmd/signing-server/main.go
 
 FROM alpine:3.16.0
 

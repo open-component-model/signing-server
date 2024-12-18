@@ -6,8 +6,29 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/miekg/pkcs11"
+	"github.com/open-component-model/signing-server/pkg/crypto11"
 	"github.com/open-component-model/signing-server/pkg/encoding"
 )
+
+// HSMOptions describes the signing environment based on PKCS#11.
+// It contains the session to use for executing the signing operations
+// and the PKCS#11 handle to access the private key to use.
+type HSMOptions struct {
+	Session *crypto11.Session
+	Key     pkcs11.ObjectHandle
+}
+
+func NewHSMOptions(session *crypto11.Session, key pkcs11.ObjectHandle) HSMOptions {
+	return HSMOptions{
+		Session: session,
+		Key:     key,
+	}
+}
+
+func (c *HSMOptions) Close() error {
+	return c.Session.Close()
+}
 
 var hashFunctions = map[string]crypto.Hash{
 	//  0 as hash function is used for signing directly without defining the hash algorithm
