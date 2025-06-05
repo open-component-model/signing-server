@@ -17,6 +17,8 @@ spec:
       containers:
         - name: signing-server
           image: {{ include "image" .Values.image }}
+          securityContext:
+            allowPrivilegeEscalation: false
           ports:
             - containerPort: {{ .Values.port }}
           args:
