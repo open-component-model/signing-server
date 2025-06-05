@@ -8,9 +8,14 @@ RUN go mod verify
 COPY pkg/ pkg/
 COPY cmd/signing-server/ ./cmd/signing-server
 
-RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -a -o signing-server cmd/signing-server/main.go
+ENV CGO_ENABLED=1
+ENV GOOS=linux
+ENV GOARCH=amd64
+ENV GO111MODULE=on
 
-FROM alpine:3.16.0
+RUN go build -a -o signing-server cmd/signing-server/main.go
+
+FROM debian:bookworm
 
 WORKDIR /app
 
