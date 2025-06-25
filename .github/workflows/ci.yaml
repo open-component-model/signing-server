@@ -7,6 +7,7 @@ jobs:
       HSM_PIN: 1234
       TOKEN_LABEL: 'test'
       KEY_LABEL: 'test-key'
+      CGO_ENABLED: 1
     name: Build and Test
     runs-on: ubuntu-latest
     strategy:
@@ -63,8 +64,6 @@ jobs:
           
           softhsm2-util --init-token --slot 0 --free --label $TOKEN_LABEL --so-pin $HSM_SO_PIN --pin $HSM_PIN
           p11tool --generate-privkey=rsa --login --set-pin=$HSM_PIN --label="$KEY_LABEL" "pkcs11:token=$TOKEN_LABEL" --outfile ${{ github.workspace }}/public_key.pem
-      - name: Build
-        run: make
       - name: Run Tests
         working-directory: ${{ github.workspace }}
         env:

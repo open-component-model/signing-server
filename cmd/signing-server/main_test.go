@@ -102,6 +102,7 @@ outer:
 				log.Println("Health check passed")
 				break outer
 			}
+			time.Sleep(500 * time.Millisecond)
 		}
 	}
 
