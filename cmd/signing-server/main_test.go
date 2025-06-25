@@ -3,13 +3,16 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"testing"
@@ -19,9 +22,9 @@ import (
 )
 
 func TestSoftHSMConcurrentSignRequests(t *testing.T) {
-	hsmModule, err := exec.Command("softhsm2-util", "--show-config", "default-pkcs11-lib").CombinedOutput()
-	if err != nil {
-		hsmModule = []byte("/usr/lib/softhsm/libsofthsm2.so")
+	hsmModule := os.Getenv("HSM_MODULE")
+	if hsmModule == "" {
+		t.Skip("HSM_MODULE environment variable is not set")
 	}
 	tokenLabel := os.Getenv("TOKEN_LABEL")
 	if tokenLabel == "" {
@@ -139,6 +142,31 @@ outer:
 			if block == nil || block.Type != "SIGNATURE" {
 				log.Fatal("Failed to parse PEM block")
 			}
+
+			hsmPublicKeyFile := os.Getenv("HSM_PUBLIC_KEY_FILE")
+			if hsmPublicKeyFile == "" {
+				log.Println("HSM_PUBLIC_KEY_FILE environment variable is not set, skipping public key verification")
+			} else {
+				if block == nil || block.Type != "PUBLIC KEY" {
+					log.Fatal("Failed to parse PEM block for public key")
+				}
+				pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+				if err != nil {
+					log.Fatalf("Failed to parse public key: %v", err)
+				}
+				rsaPubKey, ok := pub.(*rsa.PublicKey)
+				if !ok {
+					log.Fatal("Public key is not of type RSA")
+				}
+				rawDigest, err := hex.DecodeString(bodyHex)
+				if err != nil {
+					log.Fatalf("Failed to decode hex body: %v", err)
+				}
+				if err := rsa.VerifyPSS(rsaPubKey, crypto.SHA256, rawDigest, block.Bytes, nil); err != nil {
+					log.Fatalf("Signature verification failed: %v", err)
+				}
+			}
+
 			fmt.Printf("Decoded signature: %x\n", block.Bytes)
 
 			log.Printf("Response %d: %d - %.100q\n", index, resp.StatusCode, body)
