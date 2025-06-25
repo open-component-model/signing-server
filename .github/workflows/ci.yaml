@@ -1,0 +1,55 @@
+name: CI
+on: [push, pull_request]
+jobs:
+
+  build:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: [ 1.24.x ]
+    steps:
+
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: ${{ matrix.go }}
+
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Generate Keys And Certs
+        run: |
+          mkdir keys-and-certs && cd keys-and-certs
+          mkdir certs private && echo 01 > serial 
+          touch index.txt 
+          cp /etc/ssl/openssl.cnf .
+
+      - name: Generate Private Key
+        working-directory: keys-and-certs
+        run: |
+          openssl genpkey -algorithm RSA -out private/key.pem
+
+      - name: Generate Server Certificate and Sign with Private Key
+        working-directory: keys-and-certs
+        run: |
+          openssl req -new -x509 -days 365 -config openssl.cnf -key private/key.pem -out certs/cert.pem -extensions v3_ca -addext "subjectAltName = DNS:localhost" -subj "/C=DE/ST=BW/L=Walldorf/O=OCM/CN=localhost" -sha256
+
+      - name: Client Certificate Generation
+        working-directory: keys-and-certs
+        run: |
+          mkdir client
+          mkdir client/private 
+          mkdir client/certs 
+          mkdir client/csr
+          openssl genpkey -algorithm RSA -out client/private/key.pem
+          openssl req -new -sha256 -config openssl.cnf -key client/private/key.pem -out client/csr/csr.pem -subj "/C=DE/ST=BW/L=Walldorf/O=OCM/CN=localhost"
+          openssl x509 -req -in client/csr/csr.pem -CA certs/cert.pem -CAkey private/key.pem -out client/certs/cert.pem -CAcreateserial -days 365 -sha256
+
+      - name: Setup SoftHSM
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install libsofthsm2
+
+      - name: Build
+        run: make
