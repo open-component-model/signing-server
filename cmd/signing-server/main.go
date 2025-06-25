@@ -95,6 +95,7 @@ func (c *Config) SetupHSM() error {
 	if c.HSMKeyId != "" {
 		c.Logger.Info("selecting key id", zap.String("id", c.HSMKeyId))
 	}
+	c.Logger.Info("using token label", zap.String("label", c.HSMTokenLabel))
 
 	var slot *int
 	if c.HSMSlot >= 0 {
