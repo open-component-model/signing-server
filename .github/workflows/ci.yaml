@@ -71,6 +71,6 @@ jobs:
           SOFTHSM2_CONF: ${{ github.workspace }}/softhsm2.conf
           HSM_MODULE: ${{ steps.softhsm.outputs.SOFTHSM2_LIB }}
           SIGNING_SERVER_BIN: ${{ github.workspace }}/signing-server
-          HSM_PUBLIC_KEY: ${{ github.workspace }}/public_key.pem
+          HSM_PUBLIC_KEY_FILE: ${{ github.workspace }}/public_key.pem
         run: |
           go test -v ./...
