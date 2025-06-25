@@ -79,7 +79,8 @@ func TestSoftHSMConcurrentSignRequests(t *testing.T) {
 			RunServer:        true,
 		}); err != nil {
 			cancel()
-			t.Fatalf("Failed to start signing server: %v", err)
+			t.Errorf("Failed to start signing server: %v", err)
+			return
 		}
 	}()
 
@@ -148,10 +149,15 @@ outer:
 			if hsmPublicKeyFile == "" {
 				log.Println("HSM_PUBLIC_KEY_FILE environment variable is not set, skipping public key verification")
 			} else {
-				if block == nil || block.Type != "PUBLIC KEY" {
+				hsmPublicKeyData, err := os.ReadFile(hsmPublicKeyFile)
+				if err != nil {
+					log.Fatalf("Failed to read public key file %s: %v", hsmPublicKeyFile, err)
+				}
+				publicKeyBlock, _ := pem.Decode(hsmPublicKeyData)
+				if publicKeyBlock == nil || publicKeyBlock.Type != "PUBLIC KEY" {
 					log.Fatal("Failed to parse PEM block for public key")
 				}
-				pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+				pub, err := x509.ParsePKIXPublicKey(publicKeyBlock.Bytes)
 				if err != nil {
 					log.Fatalf("Failed to parse public key: %v", err)
 				}
@@ -165,6 +171,8 @@ outer:
 				}
 				if err := rsa.VerifyPSS(rsaPubKey, crypto.SHA256, rawDigest, block.Bytes, nil); err != nil {
 					log.Fatalf("Signature verification failed: %v", err)
+				} else {
+					log.Printf("Signature verification succeeded for request %d", index)
 				}
 			}
 
