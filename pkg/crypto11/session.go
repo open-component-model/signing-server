@@ -54,7 +54,7 @@ func NewSession(cfg *Config) (*Session, error) {
 	}
 	err := p.Initialize()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cannot initialize PKCS#11 session with %q: %w", cfg.Path, err)
 	}
 
 	slots, err := lookupSlots(p)
