@@ -58,9 +58,11 @@ jobs:
         run: |
           mkdir test_data
           sudo apt-get update
-          sudo apt-get -y install libsofthsm2 gnutls-bin
+          sudo apt-get -y install libsofthsm2
           
           sudo cp /etc/softhsm/softhsm2.conf ${{ github.workspace }}/softhsm2.conf
+          
+          sudo apt-get -y install gnutls-bin
           
           # set output of lib to environment variable
           
