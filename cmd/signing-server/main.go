@@ -78,7 +78,7 @@ type Config struct {
 	HSMKeyLabel   string
 	HSMKeyId      string
 
-	HSMContext sign.HSMOptions
+	HSMContext *sign.HSMOptions
 
 	// calculated by program
 	Logger *zap.Logger
@@ -105,6 +105,7 @@ func (c *Config) SetupHSM() error {
 		TokenLabel: c.HSMTokenLabel,
 		Slot:       slot,
 		Pin:        c.HSMPass,
+		Logger:     c.Logger,
 	}
 
 	ctx, err := crypto11.NewSession(config)
@@ -516,7 +517,7 @@ func RunSigner(cfg *Config, args []string, responseBuilders map[string]encoding.
 
 	hashfunc, ok := sign.GetHashFunction(cfg.Hash)
 	if !ok {
-		return fmt.Errorf("unknown hash algorith %q", cfg.Hash)
+		return fmt.Errorf("unknown hash algorithm %q", cfg.Hash)
 	}
 
 	var data []byte

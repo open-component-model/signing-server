@@ -121,6 +121,10 @@ func (s *Session) SignPSS(key pkcs11.ObjectHandle, digest []byte, opts *rsa.PSSO
 		ulongToBytes(mgf),
 		ulongToBytes(sLen))
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS_PSS, parameters)}
+	if s.serialized {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+	}
 	if err = s.Ctx.SignInit(s.Handle, mech, key); err != nil {
 		return nil, err
 	}
@@ -142,6 +146,10 @@ func (s *Session) SignPKCS1v15(key pkcs11.ObjectHandle, digest []byte, hash cryp
 	copy(T[0:len(oid)], oid)
 	copy(T[len(oid):], digest)
 	mech := []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS, nil)}
+	if s.serialized {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+	}
 	err = s.Ctx.SignInit(s.Handle, mech, key)
 	if err == nil {
 		signature, err = s.Ctx.Sign(s.Handle, T)
