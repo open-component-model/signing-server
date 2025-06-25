@@ -68,7 +68,6 @@ jobs:
         working-directory: ${{ github.workspace }}
         env:
           HSM_MODULE: "/usr/lib/softhsm/libsofthsm2.so"
-          SOFTHSM2_CONF: ${{ github.workspace }}/softhsm2.conf
           SIGNING_SERVER_BIN: ${{ github.workspace }}/signing-server
           HSM_PUBLIC_KEY_FILE: ${{ github.workspace }}/public_key.pem
         run: |
