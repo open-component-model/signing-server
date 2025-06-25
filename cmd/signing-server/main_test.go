@@ -66,7 +66,7 @@ func TestSoftHSMConcurrentSignRequests(t *testing.T) {
 
 	go func() {
 		if err := run(&Config{
-			HSMModule:        strings.TrimSpace(string(hsmModule)),
+			HSMModule:        strings.TrimSpace(hsmModule),
 			HSMTokenLabel:    tokenLabel,
 			HSMSlot:          -1,
 			HSMKeyLabel:      keyLabel,
