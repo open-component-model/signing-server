@@ -495,7 +495,7 @@ func run(cfg *Config) error {
 				return err
 			}
 		}
-		return RunServer(cfg, responseBuilders)
+		return RunServer(context.Background(), cfg, responseBuilders)
 	} else {
 		return RunSigner(cfg, pflag.CommandLine.Args(), responseBuilders)
 	}
@@ -564,7 +564,7 @@ func RunSigner(cfg *Config, args []string, responseBuilders map[string]encoding.
 	return err
 }
 
-func RunServer(cfg *Config, responseBuilders map[string]encoding.ResponseBuilder) error {
+func RunServer(ctx context.Context, cfg *Config, responseBuilders map[string]encoding.ResponseBuilder) error {
 	var err error
 
 	addr := ":" + cfg.Port
@@ -575,6 +575,11 @@ func RunServer(cfg *Config, responseBuilders map[string]encoding.ResponseBuilder
 		cfg.Logger.Info("register route", zap.String("route", route))
 		r.Methods(http.MethodPost).Path(route).Handler(h.HTTPHandler(responseBuilders, cfg.MaxBodySizeBytes))
 	}
+	r.Methods(http.MethodGet).Path("/healthz").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
 	lm := logutil.LoggingMiddleware{
 		Logger: cfg.Logger,
 	}
@@ -628,6 +633,7 @@ func RunServer(cfg *Config, responseBuilders map[string]encoding.ResponseBuilder
 	select {
 	case <-c:
 	case <-stop:
+	case <-ctx.Done():
 	}
 
 	// Create a deadline to wait for.

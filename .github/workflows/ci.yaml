@@ -1,8 +1,12 @@
 name: CI
 on: [push, pull_request]
 jobs:
-
-  build:
+  hsm:
+    env:
+      HSM_SO_PIN: 1234
+      HSM_PIN: 1234
+      TOKEN_LABEL: 'test'
+      KEY_LABEL: 'test-key'
     name: Build and Test
     runs-on: ubuntu-latest
     strategy:
@@ -33,7 +37,7 @@ jobs:
       - name: Generate Server Certificate and Sign with Private Key
         working-directory: keys-and-certs
         run: |
-          openssl req -new -x509 -days 365 -config openssl.cnf -key private/key.pem -out certs/cert.pem -extensions v3_ca -addext "subjectAltName = DNS:localhost" -subj "/C=DE/ST=BW/L=Walldorf/O=OCM/CN=localhost" -sha256
+          openssl req -new -x509 -days 5 -config openssl.cnf -key private/key.pem -out certs/cert.pem -extensions v3_ca -addext "subjectAltName = DNS:localhost" -subj "/C=DE/ST=BW/L=Walldorf/O=OCM/CN=localhost" -sha256
 
       - name: Client Certificate Generation
         working-directory: keys-and-certs
@@ -44,12 +48,29 @@ jobs:
           mkdir client/csr
           openssl genpkey -algorithm RSA -out client/private/key.pem
           openssl req -new -sha256 -config openssl.cnf -key client/private/key.pem -out client/csr/csr.pem -subj "/C=DE/ST=BW/L=Walldorf/O=OCM/CN=localhost"
-          openssl x509 -req -in client/csr/csr.pem -CA certs/cert.pem -CAkey private/key.pem -out client/certs/cert.pem -CAcreateserial -days 365 -sha256
+          openssl x509 -req -in client/csr/csr.pem -CA certs/cert.pem -CAkey private/key.pem -out client/certs/cert.pem -CAcreateserial -days 5 -sha256
 
       - name: Setup SoftHSM
+        env:
+          SOFTHSM2_CONF: ${{ github.workspace }}/softhsm2.conf
+        id: softhsm
         run: |
+          mkdir test_data
           sudo apt-get update
-          sudo apt-get -y install libsofthsm2
-
+          sudo apt-get -y install libsofthsm2 gnutls-bin
+        
+          # set output of lib to environment variable
+          
+          softhsm2-util --init-token --slot 0 --free --label $TOKEN_LABEL --so-pin $HSM_SO_PIN --pin $HSM_PIN
+          p11tool --generate-privkey=rsa --login --set-pin=$HSM_PIN --label="$KEY_LABEL" "pkcs11:token=$TOKEN_LABEL" --outfile ${{ github.workspace }}/public_key.pem
       - name: Build
         run: make
+      - name: Run Tests
+        working-directory: ${{ github.workspace }}
+        env:
+          SOFTHSM2_CONF: ${{ github.workspace }}/softhsm2.conf
+          HSM_MODULE: ${{ steps.softhsm.outputs.SOFTHSM2_LIB }}
+          SIGNING_SERVER_BIN: ${{ github.workspace }}/signing-server
+          HSM_PUBLIC_KEY: ${{ github.workspace }}/public_key.pem
+        run: |
+          go test -v ./...
