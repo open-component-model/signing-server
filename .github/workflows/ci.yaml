@@ -58,12 +58,14 @@ jobs:
         run: |
           mkdir test_data
           sudo apt-get update
-          sudo apt-get -y install libsofthsm2 gnutls-bin
+          sudo apt-get -y install libsofthsm2 gnutls-bin p11-kit
           
           # set output of lib to environment variable
           
           softhsm2-util --init-token --free --label $TOKEN_LABEL --so-pin $HSM_SO_PIN --pin $HSM_PIN
           p11tool --generate-privkey=rsa --login --set-pin=$HSM_PIN --label="$KEY_LABEL" "pkcs11:token=$TOKEN_LABEL" --outfile ${{ github.workspace }}/public_key.pem
+          
+          p11-kit list-modules
       - name: Run Tests
         working-directory: ${{ github.workspace }}
         env:
