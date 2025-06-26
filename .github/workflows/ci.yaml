@@ -56,7 +56,15 @@ jobs:
           SOFTHSM2_CONF: ${{ github.workspace }}/softhsm2.conf
         id: softhsm
         run: |
-          mkdir test_data
+          mkdir ${GITHUB_WORKSPACE}/softhsm2-tokens
+          # 2) custom SoftHSM config that uses it
+          cat > "${SOFTHSM2_CONF}" <<EOF
+          directories.tokendir = ${GITHUB_WORKSPACE}/softhsm2-tokens
+          objectstore.backend = file
+          log.level = INFO
+          EOF
+          echo "SOFTHSM2_CONF=${SOFTHSM2_CONF}" >> "${GITHUB_ENV}"   # make it stick for later steps
+  
           sudo apt-get update
           sudo apt-get -y install libsofthsm2 gnutls-bin p11-kit
           
@@ -73,6 +81,5 @@ jobs:
           SIGNING_SERVER_BIN: ${{ github.workspace }}/signing-server
           HSM_PUBLIC_KEY_FILE: ${{ github.workspace }}/public_key.pem
           SOFTHSM2_CONF: ${{ github.workspace }}/softhsm2.conf
-          SOFTHSM_CONF: ${{ github.workspace }}/softhsm.conf
         run: |
           go test -v ./...
