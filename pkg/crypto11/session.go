@@ -5,9 +5,12 @@ package crypto11
 import (
 	"encoding/hex"
 	"fmt"
+	"strings"
+	"sync"
 
 	"github.com/miekg/pkcs11"
 	"github.com/pkg/errors"
+	"go.uber.org/zap"
 )
 
 // errTokenNotFound represents the failure to find the requested PKCS#11 token
@@ -18,6 +21,9 @@ var errTokenNotFound = errors.New("could not find PKCS#11 token")
 type Session struct {
 	Ctx    *pkcs11.Ctx
 	Handle pkcs11.SessionHandle
+
+	mu         sync.Mutex // protects the session if serialized
+	serialized bool
 }
 
 // Config describes the attributes required to access
@@ -34,6 +40,9 @@ type Config struct {
 	Slot *int
 	// Pin is the password used to access the described slot.
 	Pin string
+
+	// Logger is an optional logger to use for logging.
+	Logger *zap.Logger
 }
 
 // NewSession provides a session object for working with HSM signing
@@ -45,7 +54,7 @@ func NewSession(cfg *Config) (*Session, error) {
 	}
 	err := p.Initialize()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cannot initialize PKCS#11 session with %q: %w", cfg.Path, err)
 	}
 
 	slots, err := lookupSlots(p)
@@ -60,7 +69,13 @@ func NewSession(cfg *Config) (*Session, error) {
 		return nil, fmt.Errorf("lookup HSM slots: %w", err)
 	}
 
-	session, err := p.OpenSession(slot, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKF_RW_SESSION)
+	var serializedSession bool
+	session, err := p.OpenSession(slot, 0)
+	if err != nil && strings.Contains(err.Error(), fmt.Sprintf("0x%X", pkcs11.CKR_SESSION_PARALLEL_NOT_SUPPORTED)) {
+		session, err = p.OpenSession(slot, pkcs11.CKF_SERIAL_SESSION)
+		serializedSession = true
+		cfg.Logger.Warn("opening session in serialized mode as parallel sessions are unsupported", zap.Error(err))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("open HSM session: %w", err)
 	}
@@ -73,8 +88,9 @@ func NewSession(cfg *Config) (*Session, error) {
 	}
 
 	return &Session{
-		Ctx:    p,
-		Handle: session,
+		Ctx:        p,
+		Handle:     session,
+		serialized: serializedSession,
 	}, nil
 }
 
@@ -133,6 +149,10 @@ func (s *Session) FindPrivateKey(keyId, keyLabel string) (pkcs11.ObjectHandle, e
 			return 0, fmt.Errorf("invalid key id %+v: %w", id, err)
 		}
 		attrs = append(attrs, pkcs11.NewAttribute(pkcs11.CKA_ID, id))
+	}
+	if s.serialized {
+		s.mu.Lock()
+		defer s.mu.Unlock()
 	}
 	if err := s.Ctx.FindObjectsInit(s.Handle, attrs); err != nil {
 		return 0, fmt.Errorf("HSM get private key handle %q: %w", keyId, err)

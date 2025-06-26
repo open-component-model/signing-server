@@ -19,8 +19,8 @@ type HSMOptions struct {
 	Key     pkcs11.ObjectHandle
 }
 
-func NewHSMOptions(session *crypto11.Session, key pkcs11.ObjectHandle) HSMOptions {
-	return HSMOptions{
+func NewHSMOptions(session *crypto11.Session, key pkcs11.ObjectHandle) *HSMOptions {
+	return &HSMOptions{
 		Session: session,
 		Key:     key,
 	}

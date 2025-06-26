@@ -1,0 +1,57 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  hsm:
+    env:
+      HSM_SO_PIN: 1234
+      HSM_PIN: 1234
+      TOKEN_LABEL: 'test'
+      KEY_LABEL: 'test-key'
+      CGO_ENABLED: 1
+    name: Build and Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: [ 1.24.x ]
+    steps:
+
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: ${{ matrix.go }}
+
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Setup SoftHSM
+        env:
+          SOFTHSM2_CONF: ${{ github.workspace }}/softhsm2.conf
+        id: softhsm
+        run: |
+          mkdir ${GITHUB_WORKSPACE}/softhsm2-tokens
+          # 2) custom SoftHSM config that uses it
+          cat > "${SOFTHSM2_CONF}" <<EOF
+          directories.tokendir = ${GITHUB_WORKSPACE}/softhsm2-tokens
+          objectstore.backend = file
+          log.level = INFO
+          EOF
+          echo "SOFTHSM2_CONF=${SOFTHSM2_CONF}" >> "${GITHUB_ENV}"   # make it stick for later steps
+  
+          sudo apt-get update
+          sudo apt-get -y install libsofthsm2 gnutls-bin p11-kit
+          
+          # set output of lib to environment variable
+          
+          softhsm2-util --init-token --free --label $TOKEN_LABEL --so-pin $HSM_SO_PIN --pin $HSM_PIN
+          p11tool --generate-privkey=rsa --login --set-pin=$HSM_PIN --label="$KEY_LABEL" "pkcs11:token=$TOKEN_LABEL" --outfile ${{ github.workspace }}/public_key.pem
+          
+          p11-kit list-modules
+      - name: Run Tests
+        working-directory: ${{ github.workspace }}
+        env:
+          HSM_MODULE: "/usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so"
+          SIGNING_SERVER_BIN: ${{ github.workspace }}/signing-server
+          HSM_PUBLIC_KEY_FILE: ${{ github.workspace }}/public_key.pem
+          SOFTHSM2_CONF: ${{ github.workspace }}/softhsm2.conf
+        run: |
+          go test -v ./...

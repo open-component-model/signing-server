@@ -22,12 +22,12 @@ const (
 
 var mechanism = pkcs11.NewMechanism(pkcs11.CKM_RSA_PKCS, nil)
 
-func New(opt sign.HSMOptions) sign.SignHandler {
-	return &Handler{opt}
+func New(opt *sign.HSMOptions) sign.SignHandler {
+	return &Handler{options: opt}
 }
 
 type Handler struct {
-	options sign.HSMOptions
+	options *sign.HSMOptions
 }
 
 func (h *Handler) Name() string {
