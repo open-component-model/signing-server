@@ -21,7 +21,7 @@ import (
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"golang.org/x/crypto/pkcs12"
+	"software.sslmate.com/src/go-pkcs12"
 
 	"github.com/open-component-model/signing-server/pkg/encoding"
 	"github.com/open-component-model/signing-server/pkg/handler/sign"
