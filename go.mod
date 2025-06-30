@@ -9,7 +9,10 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/pflag v1.0.6
 	go.uber.org/zap v1.27.0
-	golang.org/x/crypto v0.39.0
+	software.sslmate.com/src/go-pkcs12 v0.5.0
 )
 
-require go.uber.org/multierr v1.10.0 // indirect
+require (
+	go.uber.org/multierr v1.10.0 // indirect
+	golang.org/x/crypto v0.39.0 // indirect
+)
