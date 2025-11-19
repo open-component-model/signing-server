@@ -7,7 +7,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/miekg/pkcs11 v1.1.1
 	github.com/pkg/errors v0.9.1
-	github.com/spf13/pflag v1.0.7
+	github.com/spf13/pflag v1.0.10
 	go.uber.org/zap v1.27.0
 	software.sslmate.com/src/go-pkcs12 v0.6.0
 )
