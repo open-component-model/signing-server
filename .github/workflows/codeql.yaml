@@ -1,0 +1,66 @@
+name: "CodeQL"
+
+on:
+  push:
+    branches: [main]
+  pull_request_target:
+    branches: [main]
+  schedule:
+    # Run weekly on Monday at 07:25 UTC
+    - cron: "25 7 * * 1"
+
+# For pull_request_target events, check out the fork's code.
+# Falls back to the current repository/ref for push and schedule events.
+env:
+  REF: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.ref || github.ref }}
+  REPO: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name || github.repository }}
+
+# Top-level permissions: restrict to read-only by default.
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      # Required to upload CodeQL results to the Security tab.
+      security-events: write
+      # Required to check out the repository.
+      contents: read
+      # Required for workflows in private repositories.
+      actions: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+          - language: actions
+
+    env:
+      # This repository uses CGO (github.com/miekg/pkcs11).
+      CGO_ENABLED: 1
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: ${{ env.REPO }}
+          ref: ${{ env.REF }}
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@45580472a5bb82c4681c4ac726cfdb60060c2ee1 # v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended
+
+      - name: Autobuild
+        if: matrix.language == 'go'
+        uses: github/codeql-action/autobuild@45580472a5bb82c4681c4ac726cfdb60060c2ee1 # v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@45580472a5bb82c4681c4ac726cfdb60060c2ee1 # v3
+        with:
+          category: "/language:${{ matrix.language }}"
