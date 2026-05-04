@@ -8,7 +8,7 @@ require (
 	github.com/miekg/pkcs11 v1.1.2
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/pflag v1.0.10
-	go.uber.org/zap v1.27.1
+	go.uber.org/zap v1.28.0
 	software.sslmate.com/src/go-pkcs12 v0.7.1
 )
 
