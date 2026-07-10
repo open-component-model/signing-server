@@ -14,5 +14,5 @@ require (
 
 require (
 	go.uber.org/multierr v1.10.0 // indirect
-	golang.org/x/crypto v0.45.0 // indirect
+	golang.org/x/crypto v0.52.0 // indirect
 )
