@@ -1,6 +1,6 @@
 module github.com/open-component-model/signing-server
 
-go 1.26.5
+go 1.27.3
 
 require (
 	github.com/google/uuid v1.6.0
@@ -13,6 +13,6 @@ require (
 )
 
 require (
-	go.uber.org/multierr v1.10.0 // indirect
-	golang.org/x/crypto v0.52.0 // indirect
+	go.uber.org/multierr v1.11.0 // indirect
+	golang.org/x/crypto v0.58.0 // indirect
 )
